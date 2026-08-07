@@ -148,11 +148,12 @@ func (k *kittyRenderer) placeholder(avatarURL string) string {
 	if k == nil || !k.enabled {
 		return ""
 	}
-	img, ok := k.images[strings.TrimSpace(avatarURL)]
-	if !ok {
-		return ""
+	avatarURL = strings.TrimSpace(avatarURL)
+	if avatarURL == "" {
+		return kittyMissingPlaceholder()
 	}
-	if !img.ready {
+	img, ok := k.images[avatarURL]
+	if !ok || !img.ready {
 		return kittyLoadingPlaceholder()
 	}
 	return kittyPlaceholder(img.id)
@@ -160,6 +161,11 @@ func (k *kittyRenderer) placeholder(avatarURL string) string {
 
 func kittyLoadingPlaceholder() string {
 	line := " " + "◌" + strings.Repeat(" ", kittyColumns-2)
+	return line + "\n" + strings.Repeat(" ", kittyColumns)
+}
+
+func kittyMissingPlaceholder() string {
+	line := "  · "
 	return line + "\n" + strings.Repeat(" ", kittyColumns)
 }
 

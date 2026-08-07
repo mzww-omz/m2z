@@ -105,6 +105,15 @@ func TestAvatarResultRefreshesViewport(t *testing.T) {
 	}
 }
 
+func TestMissingAvatarPlaceholder(t *testing.T) {
+	m := newModel(nil)
+	m.notes = []Note{{ID: "1", User: User{Name: "user", Username: "user"}}}
+	m.kitty = &kittyRenderer{enabled: true, images: map[string]*kittyImage{}}
+	if !strings.Contains(m.renderNote(0, 80), "·") {
+		t.Fatal("missing avatar placeholder is missing")
+	}
+}
+
 func TestLoadingAvatarPlaceholder(t *testing.T) {
 	m := newModel(nil)
 	m.notes = []Note{{ID: "1", User: User{Name: "user", Username: "user", AvatarURL: "https://example/avatar"}}}
