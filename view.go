@@ -18,13 +18,17 @@ var (
 )
 
 func (m model) View() string {
+	var uploads string
+	if m.kitty != nil {
+		uploads = m.kitty.takeUploads()
+	}
 	switch m.screen {
 	case setupScreen:
-		return m.setupView()
+		return uploads + m.setupView()
 	case authScreen:
-		return m.authView()
+		return uploads + m.authView()
 	default:
-		return m.mainView()
+		return uploads + m.mainView()
 	}
 }
 
@@ -131,7 +135,12 @@ func (m model) renderNote(index, width int) string {
 	if note.Renote != nil {
 		text = "↻ リノート\n" + strings.TrimSpace(note.Renote.Text)
 	}
-	block := fmt.Sprintf("%s%s %s  %s\n%s", prefix, name, handle, dim.Render(when), text)
+	avatar := m.avatarPlaceholder(note.User.AvatarURL)
+	header := fmt.Sprintf("%s %s  %s", name, handle, dim.Render(when))
+	if avatar != "" {
+		header = avatar + " " + header
+	}
+	block := fmt.Sprintf("%s%s\n%s", prefix, header, text)
 	return style.Width(max(1, width-2)).Padding(0, 1).Render(block)
 }
 

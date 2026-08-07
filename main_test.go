@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNormalizeHost(t *testing.T) {
 	cases := map[string]string{
@@ -45,5 +48,16 @@ func TestOlderTimelineAppendsNotes(t *testing.T) {
 	got := updated.(model)
 	if len(got.notes) != 2 || got.notes[1].ID != "old" || got.selected != 1 {
 		t.Fatalf("older notes were not appended: %+v", got.notes)
+	}
+}
+
+func TestKittyUploadAndPlaceholder(t *testing.T) {
+	upload := kittyUpload([]byte("png"), 42)
+	if !strings.Contains(upload, "a=t,f=100,i=42") || !strings.Contains(upload, "a=p,U=1,i=42,c=1,r=1") {
+		t.Fatalf("invalid Kitty upload sequence: %q", upload)
+	}
+	placeholder := kittyPlaceholder(42)
+	if !strings.Contains(placeholder, string(rune(0x10EEEE))) {
+		t.Fatalf("missing Kitty placeholder: %q", placeholder)
 	}
 }

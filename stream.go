@@ -263,7 +263,7 @@ func (m model) streamNote(msg streamNote) (model, tea.Cmd) {
 	m.notes = append([]Note{msg.note}, m.notes...)
 	m.status, m.err = "リアルタイム更新", nil
 	m.updateViewport()
-	return m, m.stream.next()
+	return m, batchCommands(m.stream.next(), m.loadAvatars([]Note{msg.note}))
 }
 
 func (m model) streamMessage(msg tea.Msg) (model, tea.Cmd) {

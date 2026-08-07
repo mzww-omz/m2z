@@ -20,6 +20,7 @@ type model struct {
 	setupInput textinput.Model
 	composer   textarea.Model
 	viewport   viewport.Model
+	kitty      *kittyRenderer
 
 	host         string
 	session      string
@@ -56,6 +57,7 @@ func newModel(cfg *Config) model {
 		setupInput: input,
 		composer:   composer,
 		viewport:   viewport.New(1, 1),
+		kitty:      newKittyRenderer(),
 		status:     "サーバーURLを入力してください",
 	}
 	if cfg != nil && cfg.Host != "" && cfg.Token != "" {
@@ -110,6 +112,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.screen, m.focus, m.status, m.err = mainScreen, contentFocus, "認証しました。タイムラインを読み込み中…", nil
 		return m, timelineCmd(m.host, m.config.Token, m.menu)
+	case avatarResult:
+		m.kitty.finish(msg)
+		return m, nil
 	case timelineResult:
 		m.busy = false
 		if msg.err != nil {
@@ -121,7 +126,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadingOlder = false
 		m.status = fmt.Sprintf("%d件", len(msg.notes))
 		m.updateViewport()
-		return m, m.ensureStream()
+		return m, batchCommands(m.ensureStream(), m.loadAvatars(m.notes))
 	case olderTimelineResult:
 		m.loadingOlder = false
 		if msg.err != nil {
@@ -147,7 +152,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.status = fmt.Sprintf("%d件", len(m.notes))
 		m.updateViewport()
-		return m, nil
+		return m, m.loadAvatars(msg.notes)
 	case streamNote, streamStatus, streamStopped:
 		return m.streamMessage(msg)
 	case postResult:
