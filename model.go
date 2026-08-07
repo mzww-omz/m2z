@@ -116,6 +116,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, timelineCmd(m.host, m.config.Token, m.menu)
 	case avatarResult:
 		m.kitty.finish(msg)
+		m.updateViewport()
 		return m, nil
 	case timelineResult:
 		m.busy = false

@@ -86,6 +86,25 @@ func TestSelectedCursorAppearsBeforeAvatar(t *testing.T) {
 	}
 }
 
+func TestAvatarResultRefreshesViewport(t *testing.T) {
+	const avatarURL = "https://example/avatar"
+	m := newModel(nil)
+	m.screen = mainScreen
+	m.width, m.height = 80, 24
+	m.notes = []Note{{ID: "1", User: User{Name: "user", Username: "user", AvatarURL: avatarURL}}}
+	m.kitty = &kittyRenderer{
+		enabled: true,
+		images:  map[string]*kittyImage{avatarURL: {id: 42, loading: true}},
+	}
+	m.resize()
+
+	updated, _ := m.Update(avatarResult{url: avatarURL, data: []byte("png")})
+	got := updated.(model)
+	if !strings.Contains(got.viewport.View(), string(rune(0x10EEEE))) {
+		t.Fatal("viewport was not refreshed after avatar load")
+	}
+}
+
 func TestLoadingAvatarPlaceholder(t *testing.T) {
 	m := newModel(nil)
 	m.notes = []Note{{ID: "1", User: User{Name: "user", Username: "user", AvatarURL: "https://example/avatar"}}}
