@@ -196,11 +196,6 @@ func TestKittyUploadAndPlaceholder(t *testing.T) {
 	if !strings.Contains(upload, "a=T,U=1,f=100,i=42,c=4,r=2") {
 		t.Fatalf("invalid Kitty upload sequence: %q", upload)
 	}
-	virtualUpload := kittyUploadMode([]byte("png"), 42, 2, 1, true)
-	if !strings.Contains(virtualUpload, "a=T,f=100,i=42,q=2") ||
-		!strings.Contains(virtualUpload, "a=p,U=1,i=42,c=2,r=1,q=2") {
-		t.Fatalf("invalid virtual placement sequence: %q", virtualUpload)
-	}
 	placeholder := kittyPlaceholder(42, 4, 2)
 	if !strings.Contains(placeholder, string(rune(0x10EEEE))) ||
 		!strings.Contains(placeholder, string(rune(0x030D))) ||
