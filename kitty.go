@@ -26,6 +26,8 @@ const (
 	maxAvatarBytes     = 8 << 20
 	maxAvatarDimension = 2048
 	avatarSize         = 128
+	kittyColumns       = 2
+	kittyRows          = 1
 	kittyChunkSize     = 4096
 )
 
@@ -228,7 +230,7 @@ func kittyUpload(data []byte, id uint32) string {
 		out.WriteString(encoded[start:end])
 		out.WriteString("\x1b\\")
 	}
-	out.WriteString(fmt.Sprintf("\x1b_Ga=p,U=1,i=%d,c=1,r=1\x1b\\", id))
+	out.WriteString(fmt.Sprintf("\x1b_Ga=p,U=1,i=%d,c=%d,r=%d\x1b\\", id, kittyColumns, kittyRows))
 	return out.String()
 }
 
@@ -237,11 +239,13 @@ func kittyPlaceholder(id uint32) string {
 	red, green, blue := byte(low>>16), byte(low>>8), byte(low)
 	var out strings.Builder
 	fmt.Fprintf(&out, "\x1b[38;2;%d;%d;%dm", red, green, blue)
-	out.WriteRune('\U0010EEEE')
-	out.WriteRune('\u0305')
-	out.WriteRune('\u0305')
-	if high := id >> 24; high > 0 {
-		out.WriteRune(rune(0x0305 + high))
+	for column := 0; column < kittyColumns; column++ {
+		out.WriteRune('\U0010EEEE')
+		out.WriteRune('\u0305')
+		out.WriteRune(rune(0x0305 + column))
+		if high := id >> 24; high > 0 {
+			out.WriteRune(rune(0x0305 + high))
+		}
 	}
 	out.WriteString("\x1b[39m")
 	return out.String()
