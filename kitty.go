@@ -73,7 +73,7 @@ func kittyTerminal() bool {
 	}
 	term := strings.ToLower(os.Getenv("TERM"))
 	program := strings.ToLower(os.Getenv("TERM_PROGRAM"))
-	return strings.Contains(term, "kitty") || program == "ghostty" || program == "wezterm"
+	return strings.Contains(term, "kitty") || strings.Contains(term, "ghostty") || program == "ghostty" || program == "wezterm"
 }
 
 func (k *kittyRenderer) prepare(notes []Note) []tea.Cmd {
@@ -257,7 +257,7 @@ func kittyUpload(data []byte, id uint32) string {
 		}
 		control := fmt.Sprintf("m=%d", mode)
 		if start == 0 {
-			control = fmt.Sprintf("a=t,f=100,i=%d,q=2,%s", id, control)
+			control = fmt.Sprintf("a=T,U=1,f=100,i=%d,c=%d,r=%d,q=2,%s", id, kittyColumns, kittyRows, control)
 		}
 		out.WriteString("\x1b_G")
 		out.WriteString(control)
@@ -265,7 +265,6 @@ func kittyUpload(data []byte, id uint32) string {
 		out.WriteString(encoded[start:end])
 		out.WriteString("\x1b\\")
 	}
-	out.WriteString(fmt.Sprintf("\x1b_Ga=p,U=1,i=%d,c=%d,r=%d\x1b\\", id, kittyColumns, kittyRows))
 	return out.String()
 }
 

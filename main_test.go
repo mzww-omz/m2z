@@ -102,7 +102,7 @@ func TestLoadingAvatarPlaceholder(t *testing.T) {
 
 func TestKittyUploadAndPlaceholder(t *testing.T) {
 	upload := kittyUpload([]byte("png"), 42)
-	if !strings.Contains(upload, "a=t,f=100,i=42") || !strings.Contains(upload, "a=p,U=1,i=42,c=4,r=2") {
+	if !strings.Contains(upload, "a=T,U=1,f=100,i=42,c=4,r=2") {
 		t.Fatalf("invalid Kitty upload sequence: %q", upload)
 	}
 	placeholder := kittyPlaceholder(42)
