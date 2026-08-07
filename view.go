@@ -171,7 +171,6 @@ func (m model) renderNote(index, width int) string {
 
 	detailsWidth := max(1, width-2-lipgloss.Width(prefix)-kittyColumns-1)
 	details = textStyle.Width(detailsWidth).Render(details)
-	prefix = textStyle.Render(prefix)
 	block := lipgloss.JoinHorizontal(lipgloss.Top, prefix, avatar, " ", details)
 	return lipgloss.NewStyle().Width(max(1, width-2)).Padding(0, 1).Render(block)
 }
