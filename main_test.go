@@ -147,6 +147,17 @@ func TestLoadingAvatarPlaceholder(t *testing.T) {
 	}
 }
 
+func TestDownloadedEmojiSizeOverridesCatalogFallback(t *testing.T) {
+	const imageURL = "https://example/wide"
+	k := &kittyRenderer{images: map[string]*kittyImage{
+		imageURL: {id: 1, columns: 2, rows: 1, autoSize: true, loading: true},
+	}}
+	k.finish(avatarResult{url: imageURL, data: []byte("png"), width: 400, height: 100})
+	if k.images[imageURL].columns != maxEmojiColumns {
+		t.Fatalf("wide image size was not applied: %d", k.images[imageURL].columns)
+	}
+}
+
 func TestEmojiDimensionsPreserveWideImages(t *testing.T) {
 	if columns, rows := emojiDimensions(CustomEmoji{Width: 1, Height: 1}); columns != 2 || rows != 1 {
 		t.Fatalf("square emoji size = %dx%d", columns, rows)

@@ -37,9 +37,11 @@ var kittyDiacritics = []rune{
 }
 
 type avatarResult struct {
-	url  string
-	data []byte
-	err  error
+	url    string
+	data   []byte
+	width  int
+	height int
+	err    error
 }
 
 type kittyImage struct {
@@ -49,6 +51,7 @@ type kittyImage struct {
 	loading  bool
 	ready    bool
 	uploaded bool
+	autoSize bool
 	data     []byte
 }
 
@@ -92,6 +95,14 @@ func (k *kittyRenderer) prepare(notes []Note) []tea.Cmd {
 }
 
 func (k *kittyRenderer) prepareAsset(rawURL string, columns, rows int) tea.Cmd {
+	return k.prepareAssetMode(rawURL, columns, rows, false)
+}
+
+func (k *kittyRenderer) prepareEmojiAsset(rawURL string, columns, rows int) tea.Cmd {
+	return k.prepareAssetMode(rawURL, columns, rows, true)
+}
+
+func (k *kittyRenderer) prepareAssetMode(rawURL string, columns, rows int, autoSize bool) tea.Cmd {
 	if k == nil || !k.enabled {
 		return nil
 	}
@@ -103,10 +114,11 @@ func (k *kittyRenderer) prepareAsset(rawURL string, columns, rows int) tea.Cmd {
 		return nil
 	}
 	k.images[rawURL] = &kittyImage{
-		id:      k.nextID,
-		columns: columns,
-		rows:    rows,
-		loading: true,
+		id:       k.nextID,
+		columns:  columns,
+		rows:     rows,
+		loading:  true,
+		autoSize: autoSize,
 	}
 	k.nextID++
 	return avatarCmd(rawURL)
@@ -148,6 +160,9 @@ func (k *kittyRenderer) finish(msg avatarResult) {
 	if msg.err != nil {
 		delete(k.images, msg.url)
 		return
+	}
+	if img.autoSize && msg.width > 0 && msg.height > 0 {
+		img.columns, img.rows = emojiDimensions(CustomEmoji{Width: msg.width, Height: msg.height})
 	}
 	img.data = msg.data
 	img.ready = true
@@ -215,33 +230,41 @@ func (k *kittyRenderer) takeUploads() string {
 
 func avatarCmd(rawURL string) tea.Cmd {
 	return func() tea.Msg {
-		data, err := downloadAvatar(rawURL)
-		return avatarResult{url: rawURL, data: data, err: err}
+		data, width, height, err := downloadAvatar(rawURL)
+		return avatarResult{url: rawURL, data: data, width: width, height: height, err: err}
 	}
 }
 
-func downloadAvatar(rawURL string) ([]byte, error) {
+func downloadAvatar(rawURL string) ([]byte, int, int, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
-		return nil, errors.New("アイコンURLが不正です")
+		return nil, 0, 0, errors.New("アイコンURLが不正です")
 	}
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(u.String())
 	if err != nil {
-		return nil, err
+		return nil, 0, 0, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("アイコン取得 HTTP %s", resp.Status)
+		return nil, 0, 0, fmt.Errorf("アイコン取得 HTTP %s", resp.Status)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxAvatarBytes+1))
 	if err != nil {
-		return nil, err
+		return nil, 0, 0, err
 	}
 	if len(data) > maxAvatarBytes {
-		return nil, errors.New("アイコンが大きすぎます")
+		return nil, 0, 0, errors.New("アイコンが大きすぎます")
 	}
-	return avatarPNG(data)
+	normalized, err := avatarPNG(data)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	config, _, err := image.DecodeConfig(bytes.NewReader(normalized))
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	return normalized, config.Width, config.Height, nil
 }
 
 func avatarPNG(data []byte) ([]byte, error) {

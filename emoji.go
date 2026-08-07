@@ -87,7 +87,7 @@ func (m *model) loadEmojiAssets(notes []Note) tea.Cmd {
 			}
 			seen[emoji.URL] = struct{}{}
 			columns, rows := emojiDimensions(emoji)
-			if cmd := m.kitty.prepareAsset(emoji.URL, columns, rows); cmd != nil {
+			if cmd := m.kitty.prepareEmojiAsset(emoji.URL, columns, rows); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
 		}
