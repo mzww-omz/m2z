@@ -44,6 +44,8 @@ type avatarResult struct {
 
 type kittyImage struct {
 	id       uint32
+	columns  int
+	rows     int
 	loading  bool
 	ready    bool
 	uploaded bool
@@ -82,18 +84,32 @@ func (k *kittyRenderer) prepare(notes []Note) []tea.Cmd {
 	}
 	var cmds []tea.Cmd
 	for _, note := range notes {
-		avatarURL := strings.TrimSpace(note.User.AvatarURL)
-		if avatarURL == "" {
-			continue
+		if cmd := k.prepareAsset(note.User.AvatarURL, kittyColumns, kittyRows); cmd != nil {
+			cmds = append(cmds, cmd)
 		}
-		if _, ok := k.images[avatarURL]; ok {
-			continue
-		}
-		k.images[avatarURL] = &kittyImage{id: k.nextID, loading: true}
-		k.nextID++
-		cmds = append(cmds, avatarCmd(avatarURL))
 	}
 	return cmds
+}
+
+func (k *kittyRenderer) prepareAsset(rawURL string, columns, rows int) tea.Cmd {
+	if k == nil || !k.enabled {
+		return nil
+	}
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return nil
+	}
+	if _, ok := k.images[rawURL]; ok {
+		return nil
+	}
+	k.images[rawURL] = &kittyImage{
+		id:      k.nextID,
+		columns: columns,
+		rows:    rows,
+		loading: true,
+	}
+	k.nextID++
+	return avatarCmd(rawURL)
 }
 
 func (m *model) loadAvatars(notes []Note) tea.Cmd {
@@ -103,12 +119,12 @@ func (m *model) loadAvatars(notes []Note) tea.Cmd {
 	return batchCommands(m.kitty.prepare(notes)...)
 }
 
-func (m *model) resetAvatarCache() tea.Cmd {
+func (m *model) resetImageCache() tea.Cmd {
 	if m.kitty == nil {
 		return nil
 	}
 	m.kitty.reset()
-	return m.loadAvatars(m.notes)
+	return batchCommands(m.loadAvatars(m.notes), m.loadEmojiAssets(m.notes))
 }
 
 func (k *kittyRenderer) reset() {
@@ -145,23 +161,27 @@ func (m model) avatarPlaceholder(avatarURL string) string {
 }
 
 func (k *kittyRenderer) placeholder(avatarURL string) string {
+	return k.placeholderFor(avatarURL, kittyColumns, kittyRows)
+}
+
+func (k *kittyRenderer) placeholderFor(rawURL string, columns, rows int) string {
 	if k == nil || !k.enabled {
 		return ""
 	}
-	avatarURL = strings.TrimSpace(avatarURL)
-	if avatarURL == "" {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
 		return kittyMissingPlaceholder()
 	}
-	img, ok := k.images[avatarURL]
+	img, ok := k.images[rawURL]
 	if !ok || !img.ready {
-		return kittyLoadingPlaceholder()
+		return kittyLoadingPlaceholder(columns, rows)
 	}
-	return kittyPlaceholder(img.id)
+	return kittyPlaceholder(img.id, img.columns, img.rows)
 }
 
-func kittyLoadingPlaceholder() string {
-	line := " " + "◌" + strings.Repeat(" ", kittyColumns-2)
-	return line + "\n" + strings.Repeat(" ", kittyColumns)
+func kittyLoadingPlaceholder(columns, rows int) string {
+	line := " " + "◌" + strings.Repeat(" ", max(0, columns-2))
+	return line + strings.Repeat("\n"+strings.Repeat(" ", columns), max(0, rows-1))
 }
 
 func kittyMissingPlaceholder() string {
@@ -187,7 +207,7 @@ func (k *kittyRenderer) takeUploads() string {
 	}
 	for _, avatarURL := range urls {
 		img := k.images[avatarURL]
-		out.WriteString(kittyUpload(img.data, img.id))
+		out.WriteString(kittyUpload(img.data, img.id, img.columns, img.rows))
 		img.uploaded = true
 	}
 	return out.String()
@@ -251,7 +271,7 @@ func avatarPNG(data []byte) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-func kittyUpload(data []byte, id uint32) string {
+func kittyUpload(data []byte, id uint32, columns, rows int) string {
 	encoded := base64.StdEncoding.EncodeToString(data)
 	var out strings.Builder
 	for start := 0; start < len(encoded); start += kittyChunkSize {
@@ -263,7 +283,7 @@ func kittyUpload(data []byte, id uint32) string {
 		}
 		control := fmt.Sprintf("m=%d", mode)
 		if start == 0 {
-			control = fmt.Sprintf("a=T,U=1,f=100,i=%d,c=%d,r=%d,q=2,%s", id, kittyColumns, kittyRows, control)
+			control = fmt.Sprintf("a=T,U=1,f=100,i=%d,c=%d,r=%d,q=2,%s", id, columns, rows, control)
 		}
 		out.WriteString("\x1b_G")
 		out.WriteString(control)
@@ -274,16 +294,16 @@ func kittyUpload(data []byte, id uint32) string {
 	return out.String()
 }
 
-func kittyPlaceholder(id uint32) string {
+func kittyPlaceholder(id uint32, columns, rows int) string {
 	low := id & 0xFFFFFF
 	red, green, blue := byte(low>>16), byte(low>>8), byte(low)
 	var out strings.Builder
-	for row := 0; row < kittyRows; row++ {
+	for row := 0; row < rows; row++ {
 		if row > 0 {
 			out.WriteByte('\n')
 		}
 		fmt.Fprintf(&out, "\x1b[38;2;%d;%d;%dm", red, green, blue)
-		for column := 0; column < kittyColumns; column++ {
+		for column := 0; column < columns; column++ {
 			out.WriteRune('\U0010EEEE')
 			out.WriteRune(kittyDiacritic(uint32(row)))
 			out.WriteRune(kittyDiacritic(uint32(column)))

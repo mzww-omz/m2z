@@ -21,6 +21,7 @@ type model struct {
 	composer   textarea.Model
 	viewport   viewport.Model
 	kitty      *kittyRenderer
+	emojis     map[string]CustomEmoji
 
 	host          string
 	session       string
@@ -60,6 +61,7 @@ func newModel(cfg *Config) model {
 		composer:   composer,
 		viewport:   viewport.New(1, 1),
 		kitty:      newKittyRenderer(),
+		emojis:     make(map[string]CustomEmoji),
 		status:     "サーバーURLを入力してください",
 	}
 	if cfg != nil && cfg.Host != "" && cfg.Token != "" {
@@ -73,7 +75,7 @@ func newModel(cfg *Config) model {
 
 func (m model) Init() tea.Cmd {
 	if m.screen == mainScreen {
-		return timelineCmd(m.host, m.config.Token, m.menu)
+		return batchCommands(timelineCmd(m.host, m.config.Token, m.menu), emojiCatalogCmd(m.host))
 	}
 	return nil
 }
@@ -113,7 +115,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.screen, m.focus, m.status, m.err = mainScreen, contentFocus, "認証しました。タイムラインを読み込み中…", nil
-		return m, timelineCmd(m.host, m.config.Token, m.menu)
+		return m, batchCommands(timelineCmd(m.host, m.config.Token, m.menu), emojiCatalogCmd(m.host))
+	case emojiCatalogResult:
+		if msg.err == nil {
+			m.emojis = buildEmojiCatalog(msg.emojis)
+			emojiCmd := m.loadEmojiAssets(m.notes)
+			m.updateViewport()
+			return m, emojiCmd
+		}
+		return m, nil
 	case avatarResult:
 		m.kitty.finish(msg)
 		m.updateViewport()
@@ -128,8 +138,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.hasMore = len(msg.notes) == requestLimit
 		m.loadingOlder = false
 		m.status = fmt.Sprintf("%d件", len(msg.notes))
+		avatarCmd := m.loadAvatars(m.notes)
+		emojiCmd := m.loadEmojiAssets(m.notes)
 		m.updateViewport()
-		return m, batchCommands(m.ensureStream(), m.loadAvatars(m.notes))
+		return m, batchCommands(m.ensureStream(), avatarCmd, emojiCmd)
 	case olderTimelineResult:
 		m.loadingOlder = false
 		if msg.err != nil {
@@ -154,8 +166,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selected = min(m.selected+1, len(m.notes)-1)
 		}
 		m.status = fmt.Sprintf("%d件", len(m.notes))
+		avatarCmd := m.loadAvatars(msg.notes)
+		emojiCmd := m.loadEmojiAssets(msg.notes)
 		m.updateViewport()
-		return m, m.loadAvatars(msg.notes)
+		return m, batchCommands(avatarCmd, emojiCmd)
 	case streamNote, streamStatus, streamStopped:
 		return m.streamMessage(msg)
 	case postResult:
@@ -322,7 +336,7 @@ func (m model) updateSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "y", "enter":
 			m.confirmReset = false
 			m.status, m.err = "アイコンキャッシュを削除しました。再取得中…", nil
-			return m, m.resetAvatarCache()
+			return m, m.resetImageCache()
 		case "n", "esc":
 			m.confirmReset = false
 		}

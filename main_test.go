@@ -77,7 +77,7 @@ func TestSelectedCursorAppearsBeforeAvatar(t *testing.T) {
 	m.kitty = &kittyRenderer{
 		enabled: true,
 		images: map[string]*kittyImage{
-			"https://example/avatar": {id: 42, ready: true},
+			"https://example/avatar": {id: 42, columns: kittyColumns, rows: kittyRows, ready: true},
 		},
 	}
 	rendered := m.renderNote(0, 80)
@@ -94,7 +94,7 @@ func TestAvatarResultRefreshesViewport(t *testing.T) {
 	m.notes = []Note{{ID: "1", User: User{Name: "user", Username: "user", AvatarURL: avatarURL}}}
 	m.kitty = &kittyRenderer{
 		enabled: true,
-		images:  map[string]*kittyImage{avatarURL: {id: 42, loading: true}},
+		images:  map[string]*kittyImage{avatarURL: {id: 42, columns: kittyColumns, rows: kittyRows, loading: true}},
 	}
 	m.resize()
 
@@ -128,12 +128,24 @@ func TestLoadingAvatarPlaceholder(t *testing.T) {
 	}
 }
 
+func TestEmojiDimensionsPreserveWideImages(t *testing.T) {
+	if columns, rows := emojiDimensions(CustomEmoji{Width: 1, Height: 1}); columns != 2 || rows != 1 {
+		t.Fatalf("square emoji size = %dx%d", columns, rows)
+	}
+	if columns, rows := emojiDimensions(CustomEmoji{Width: 4, Height: 1}); columns != 8 || rows != 1 {
+		t.Fatalf("wide emoji size = %dx%d", columns, rows)
+	}
+	if columns, _ := emojiDimensions(CustomEmoji{Width: 20, Height: 1}); columns != maxEmojiColumns {
+		t.Fatalf("wide emoji was not capped: %d", columns)
+	}
+}
+
 func TestKittyUploadAndPlaceholder(t *testing.T) {
-	upload := kittyUpload([]byte("png"), 42)
+	upload := kittyUpload([]byte("png"), 42, 4, 2)
 	if !strings.Contains(upload, "a=T,U=1,f=100,i=42,c=4,r=2") {
 		t.Fatalf("invalid Kitty upload sequence: %q", upload)
 	}
-	placeholder := kittyPlaceholder(42)
+	placeholder := kittyPlaceholder(42, 4, 2)
 	if !strings.Contains(placeholder, string(rune(0x10EEEE))) ||
 		!strings.Contains(placeholder, string(rune(0x030D))) ||
 		strings.Count(placeholder, "\n") != kittyRows-1 ||

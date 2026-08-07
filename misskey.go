@@ -19,11 +19,12 @@ type User struct {
 }
 
 type Note struct {
-	ID        string `json:"id"`
-	CreatedAt string `json:"createdAt"`
-	Text      string `json:"text"`
-	User      User   `json:"user"`
-	Renote    *Note  `json:"renote"`
+	ID        string   `json:"id"`
+	CreatedAt string   `json:"createdAt"`
+	Text      string   `json:"text"`
+	Emojis    []string `json:"emojis"`
+	User      User     `json:"user"`
+	Renote    *Note    `json:"renote"`
 }
 
 type Meta struct {
@@ -43,6 +44,31 @@ type olderTimelineResult struct {
 }
 
 type postResult struct{ err error }
+
+func emojiCatalogCmd(host string) tea.Cmd {
+	return func() tea.Msg {
+		var raw json.RawMessage
+		if err := apiCall(context.Background(), host+"/api/emojis", "", map[string]any{}, &raw); err != nil {
+			return emojiCatalogResult{err: err}
+		}
+		var emojis []CustomEmoji
+		trimmed := bytes.TrimSpace(raw)
+		if len(trimmed) > 0 && trimmed[0] == '[' {
+			if err := json.Unmarshal(trimmed, &emojis); err != nil {
+				return emojiCatalogResult{err: err}
+			}
+		} else {
+			var response struct {
+				Emojis []CustomEmoji `json:"emojis"`
+			}
+			if err := json.Unmarshal(trimmed, &response); err != nil {
+				return emojiCatalogResult{err: err}
+			}
+			emojis = response.Emojis
+		}
+		return emojiCatalogResult{emojis: emojis}
+	}
+}
 
 func timelineCmd(host, token string, kind int) tea.Cmd {
 	return func() tea.Msg {

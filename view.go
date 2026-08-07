@@ -162,6 +162,7 @@ func (m model) renderNote(index, width int) string {
 	if note.Renote != nil {
 		text = "↻ リノート\n" + strings.TrimSpace(note.Renote.Text)
 	}
+	text = m.renderEmojiText(text)
 	header := fmt.Sprintf("%s %s  %s", name, handle, dim.Render(when))
 	details := fmt.Sprintf("%s\n%s", header, text)
 	avatar := m.avatarPlaceholder(note.User.AvatarURL)
