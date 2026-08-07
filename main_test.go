@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestNormalizeHost(t *testing.T) {
@@ -167,6 +168,26 @@ func TestEmojiDimensionsPreserveWideImages(t *testing.T) {
 	}
 	if columns, _ := emojiDimensions(CustomEmoji{Width: 20, Height: 1}); columns != maxEmojiColumns {
 		t.Fatalf("wide emoji was not capped: %d", columns)
+	}
+}
+
+func TestAdjacentEmojiPlaceholdersWrapAsUnits(t *testing.T) {
+	m := newModel(nil)
+	m.kitty = &kittyRenderer{
+		enabled: true,
+		images: map[string]*kittyImage{
+			"https://example/a": {id: 1, columns: 4, rows: 1, ready: true},
+			"https://example/b": {id: 2, columns: 4, rows: 1, ready: true},
+		},
+	}
+	m.emojis = map[string]CustomEmoji{
+		"a": {Name: "a", URL: "https://example/a"},
+		"b": {Name: "b", URL: "https://example/b"},
+	}
+	layout, markers := m.layoutEmojiText(":a::b:")
+	rendered := replaceEmojiMarkers(lipgloss.NewStyle().Width(7).Render(layout), markers)
+	if strings.Count(rendered, string(rune(0x10EEEE))) != 8 || strings.Count(rendered, "\x1b[39m") != 2 {
+		t.Fatalf("adjacent emoji placeholders were split: %q", rendered)
 	}
 }
 

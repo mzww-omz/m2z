@@ -3,6 +3,7 @@ package main
 import (
 	"math"
 	"regexp"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -52,19 +53,65 @@ func emojiDimensions(emoji CustomEmoji) (int, int) {
 	return max(1, min(maxEmojiColumns, columns)), 1
 }
 
-func (m model) renderEmojiText(text string) string {
+func (m model) layoutEmojiText(text string) (string, map[string]string) {
 	if m.kitty == nil || !m.kitty.enabled || len(m.emojis) == 0 {
-		return text
+		return text, nil
 	}
-	return customEmojiPattern.ReplaceAllStringFunc(text, func(token string) string {
-		name := token[1 : len(token)-1]
+	matches := customEmojiPattern.FindAllStringSubmatchIndex(text, -1)
+	if len(matches) == 0 {
+		return text, nil
+	}
+	markers := make(map[string]string, len(matches))
+	var out strings.Builder
+	last := 0
+	previousEmoji := false
+	for index, match := range matches {
+		start, end := match[0], match[1]
+		segment := text[last:start]
+		out.WriteString(segment)
+		name := text[match[2]:match[3]]
 		emoji, ok := m.emojis[name]
 		if !ok {
-			return token
+			out.WriteString(text[start:end])
+			previousEmoji = false
+			last = end
+			continue
 		}
-		columns, rows := emojiDimensions(emoji)
-		return m.kitty.placeholderFor(emoji.URL, columns, rows)
-	})
+		if previousEmoji && segment == "" {
+			out.WriteByte(' ')
+		}
+		columns, rows := m.emojiDisplaySize(emoji)
+		marker := emojiMarker(index, columns)
+		out.WriteString(marker)
+		markers[marker] = m.kitty.placeholderFor(emoji.URL, columns, rows)
+		previousEmoji = true
+		last = end
+	}
+	out.WriteString(text[last:])
+	return out.String(), markers
+}
+
+func (m model) emojiDisplaySize(emoji CustomEmoji) (int, int) {
+	columns, rows := emojiDimensions(emoji)
+	if image, ok := m.kitty.images[emoji.URL]; ok && image.ready {
+		return image.columns, image.rows
+	}
+	return columns, rows
+}
+
+func emojiMarker(index, columns int) string {
+	var marker strings.Builder
+	for column := 0; column < columns; column++ {
+		marker.WriteRune(rune(0xE000 + index*maxEmojiColumns + column))
+	}
+	return marker.String()
+}
+
+func replaceEmojiMarkers(text string, replacements map[string]string) string {
+	for marker, placeholder := range replacements {
+		text = strings.ReplaceAll(text, marker, placeholder)
+	}
+	return text
 }
 
 func (m *model) loadEmojiAssets(notes []Note) tea.Cmd {

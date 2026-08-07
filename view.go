@@ -162,18 +162,20 @@ func (m model) renderNote(index, width int) string {
 	if note.Renote != nil {
 		text = "↻ リノート\n" + strings.TrimSpace(note.Renote.Text)
 	}
-	text = m.renderEmojiText(text)
+	text, emojiMarkers := m.layoutEmojiText(text)
 	header := fmt.Sprintf("%s %s  %s", name, handle, dim.Render(when))
 	details := fmt.Sprintf("%s\n%s", header, text)
 	avatar := m.avatarPlaceholder(note.User.AvatarURL)
 	if avatar == "" {
-		return textStyle.Width(max(1, width-2)).Padding(0, 1).Render(prefix + details)
+		rendered := textStyle.Width(max(1, width-2)).Padding(0, 1).Render(prefix + details)
+		return replaceEmojiMarkers(rendered, emojiMarkers)
 	}
 
 	detailsWidth := max(1, width-2-lipgloss.Width(prefix)-kittyColumns-1)
 	details = textStyle.Width(detailsWidth).Render(details)
 	block := lipgloss.JoinHorizontal(lipgloss.Top, prefix, avatar, " ", details)
-	return lipgloss.NewStyle().Width(max(1, width-2)).Padding(0, 1).Render(block)
+	rendered := lipgloss.NewStyle().Width(max(1, width-2)).Padding(0, 1).Render(block)
+	return replaceEmojiMarkers(rendered, emojiMarkers)
 }
 
 func (m model) selectedLineOffset(width int) int {
