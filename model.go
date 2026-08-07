@@ -166,10 +166,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.composer.Reset()
 		m.status, m.err = "投稿しました", nil
 		return m, timelineCmd(m.host, m.config.Token, m.menu)
+	case tea.MouseMsg:
+		return m.updateMouse(msg)
 	case tea.KeyMsg:
 		return m.updateKey(msg)
 	}
 	return m, nil
+}
+
+func (m model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if m.screen != mainScreen || msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
+		return m, nil
+	}
+	if msg.X < 0 || msg.X >= menuWidth || msg.Y < 2 || msg.Y > 4 {
+		return m, nil
+	}
+	menu := msg.Y - 2
+	if menu == m.menu {
+		m.focus = contentFocus
+		m.setFocus()
+		return m, nil
+	}
+	m.stopStream()
+	m.menu = menu
+	m.focus = contentFocus
+	m.setFocus()
+	m.busy, m.status, m.err = true, "読み込み中…", nil
+	return m, timelineCmd(m.host, m.config.Token, m.menu)
 }
 
 func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

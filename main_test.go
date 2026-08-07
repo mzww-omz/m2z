@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestNormalizeHost(t *testing.T) {
@@ -48,6 +50,23 @@ func TestOlderTimelineAppendsNotes(t *testing.T) {
 	got := updated.(model)
 	if len(got.notes) != 2 || got.notes[1].ID != "old" || got.selected != 1 {
 		t.Fatalf("older notes were not appended: %+v", got.notes)
+	}
+}
+
+func TestMouseSelectsTimelineMenu(t *testing.T) {
+	m := newModel(&Config{Host: "https://misskey.example", Token: "token"})
+	m.screen = mainScreen
+	m.menu = 0
+
+	updated, cmd := m.Update(tea.MouseMsg{
+		X:      2,
+		Y:      3,
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonLeft,
+	})
+	got := updated.(model)
+	if got.menu != 1 || !got.busy || cmd == nil {
+		t.Fatalf("mouse did not select Local: menu=%d busy=%v cmd=%v", got.menu, got.busy, cmd != nil)
 	}
 }
 
