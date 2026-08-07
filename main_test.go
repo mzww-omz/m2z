@@ -196,6 +196,10 @@ func TestKittyUploadAndPlaceholder(t *testing.T) {
 	if !strings.Contains(upload, "a=T,U=1,f=100,i=42,c=4,r=2") {
 		t.Fatalf("invalid Kitty upload sequence: %q", upload)
 	}
+	fitUpload := kittyUploadMode([]byte("png"), 42, 8, 1, true)
+	if !strings.Contains(fitUpload, "a=T,U=1,f=100,i=42,c=8,q=2") || strings.Contains(fitUpload, "i=42,c=8,r=") {
+		t.Fatalf("custom emoji upload did not preserve aspect ratio: %q", fitUpload)
+	}
 	placeholder := kittyPlaceholder(42, 4, 2)
 	if !strings.Contains(placeholder, string(rune(0x10EEEE))) ||
 		!strings.Contains(placeholder, string(rune(0x030D))) ||
