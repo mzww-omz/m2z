@@ -141,10 +141,10 @@ func (m model) renderNotes(width int) string {
 func (m model) renderNote(index, width int) string {
 	note := m.notes[index]
 	prefix := "  "
-	style := lipgloss.NewStyle()
+	textStyle := lipgloss.NewStyle()
 	if index == m.selected {
 		prefix = "▸ "
-		style = selectedStyle
+		textStyle = selectedStyle
 	}
 	name := note.User.Name
 	if name == "" {
@@ -165,14 +165,15 @@ func (m model) renderNote(index, width int) string {
 	header := fmt.Sprintf("%s %s  %s", name, handle, dim.Render(when))
 	details := fmt.Sprintf("%s\n%s", header, text)
 	avatar := m.avatarPlaceholder(note.User.AvatarURL)
-	if avatar != "" {
-		detailsWidth := max(1, width-2-lipgloss.Width(prefix)-kittyColumns-1)
-		details = lipgloss.NewStyle().Width(detailsWidth).Render(details)
-		details = lipgloss.JoinHorizontal(lipgloss.Top, prefix, avatar, " ", details)
-	} else {
-		details = prefix + details
+	if avatar == "" {
+		return textStyle.Width(max(1, width-2)).Padding(0, 1).Render(prefix + details)
 	}
-	return style.Width(max(1, width-2)).Padding(0, 1).Render(details)
+
+	detailsWidth := max(1, width-2-lipgloss.Width(prefix)-kittyColumns-1)
+	details = textStyle.Width(detailsWidth).Render(details)
+	prefix = textStyle.Render(prefix)
+	block := lipgloss.JoinHorizontal(lipgloss.Top, prefix, avatar, " ", details)
+	return lipgloss.NewStyle().Width(max(1, width-2)).Padding(0, 1).Render(block)
 }
 
 func (m model) selectedLineOffset(width int) int {
