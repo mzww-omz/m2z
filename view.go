@@ -174,7 +174,7 @@ func (m model) renderNote(index, width int) string {
 	detailsWidth := max(1, width-2-lipgloss.Width(prefix)-kittyColumns-1)
 	details = textStyle.Width(detailsWidth).Render(details)
 	block := lipgloss.JoinHorizontal(lipgloss.Top, prefix, avatar, " ", details)
-	rendered := lipgloss.NewStyle().Width(max(1, width-2)).Padding(0, 1).Render(block)
+	rendered := lipgloss.NewStyle().Padding(0, 1).Render(block)
 	return replaceEmojiMarkers(rendered, emojiMarkers)
 }
 

@@ -13,7 +13,10 @@ const (
 	cellHeightRatio = 2.0
 )
 
-var customEmojiPattern = regexp.MustCompile(`:([A-Za-z0-9_+.-]+):`)
+var (
+	customEmojiPattern    = regexp.MustCompile(`:([A-Za-z0-9_+.-]+):`)
+	emojiMarkerGapPattern = regexp.MustCompile(`([\x{E000}-\x{F8FF}]+) +([\x{E000}-\x{F8FF}]+)`)
+)
 
 type CustomEmoji struct {
 	Name    string   `json:"name"`
@@ -108,6 +111,7 @@ func emojiMarker(index, columns int) string {
 }
 
 func replaceEmojiMarkers(text string, replacements map[string]string) string {
+	text = emojiMarkerGapPattern.ReplaceAllString(text, `$1$2`)
 	for marker, placeholder := range replacements {
 		text = strings.ReplaceAll(text, marker, placeholder)
 	}

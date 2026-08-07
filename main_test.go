@@ -186,7 +186,7 @@ func TestAdjacentEmojiPlaceholdersWrapAsUnits(t *testing.T) {
 	}
 	layout, markers := m.layoutEmojiText(":a::b:")
 	rendered := replaceEmojiMarkers(lipgloss.NewStyle().Width(7).Render(layout), markers)
-	if strings.Count(rendered, string(rune(0x10EEEE))) != 8 || strings.Count(rendered, "\x1b[39m") != 2 {
+	if strings.Count(rendered, string(rune(0x10EEEE))) != 8 || strings.Count(rendered, "\x1b[39m") != 2 || strings.Contains(rendered, "\x1b[39m \x1b[38;") {
 		t.Fatalf("adjacent emoji placeholders were split: %q", rendered)
 	}
 }
