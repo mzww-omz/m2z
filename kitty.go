@@ -51,9 +51,10 @@ type kittyImage struct {
 }
 
 type kittyRenderer struct {
-	enabled bool
-	nextID  uint32
-	images  map[string]*kittyImage
+	enabled      bool
+	nextID       uint32
+	images       map[string]*kittyImage
+	clearPending bool
 }
 
 func newKittyRenderer() *kittyRenderer {
@@ -100,6 +101,23 @@ func (m *model) loadAvatars(notes []Note) tea.Cmd {
 		return nil
 	}
 	return batchCommands(m.kitty.prepare(notes)...)
+}
+
+func (m *model) resetAvatarCache() tea.Cmd {
+	if m.kitty == nil {
+		return nil
+	}
+	m.kitty.reset()
+	return m.loadAvatars(m.notes)
+}
+
+func (k *kittyRenderer) reset() {
+	if k == nil || !k.enabled {
+		return
+	}
+	k.images = make(map[string]*kittyImage)
+	k.nextID = 1
+	k.clearPending = true
 }
 
 func (k *kittyRenderer) finish(msg avatarResult) {
@@ -149,6 +167,10 @@ func (k *kittyRenderer) takeUploads() string {
 	}
 	sort.Strings(urls)
 	var out strings.Builder
+	if k.clearPending {
+		out.WriteString("\x1b_Ga=d,d=A,q=2;\x1b\\")
+		k.clearPending = false
+	}
 	for _, avatarURL := range urls {
 		img := k.images[avatarURL]
 		out.WriteString(kittyUpload(img.data, img.id))

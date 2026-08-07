@@ -27,6 +27,8 @@ func (m model) View() string {
 		return uploads + m.setupView()
 	case authScreen:
 		return uploads + m.authView()
+	case settingsScreen:
+		return uploads + m.settingsView()
 	default:
 		return uploads + m.mainView()
 	}
@@ -65,6 +67,31 @@ func (m model) authView() string {
 	return lipgloss.NewStyle().Padding(2, 4).Render(body)
 }
 
+func (m model) settingsView() string {
+	items := []string{"アイコンキャッシュを削除", "戻る"}
+	lines := []string{accent.Render("m2z — 設定"), ""}
+	if m.confirmReset {
+		lines = append(lines,
+			errorStyle.Render("アイコンキャッシュを削除しますか？"),
+			"現在表示中のアイコンを再取得します。",
+			"",
+			dim.Render("y / Enter: 実行   n / Esc: キャンセル"),
+		)
+	} else {
+		for i, item := range items {
+			prefix := "  "
+			if i == m.settingsIndex {
+				prefix = "▸ "
+				lines = append(lines, selectedStyle.Render(prefix+item))
+			} else {
+				lines = append(lines, prefix+item)
+			}
+		}
+		lines = append(lines, "", m.statusLine(), "", dim.Render("j/k: 選択   Enter: 決定   Esc: 戻る"))
+	}
+	return lipgloss.NewStyle().Padding(2, 4).Render(strings.Join(lines, "\n"))
+}
+
 func (m model) mainView() string {
 	if m.width < menuWidth+10 {
 		return "画面幅が狭すぎます"
@@ -78,7 +105,7 @@ func (m model) mainView() string {
 			menuItems = append(menuItems, "  "+item)
 		}
 	}
-	menuItems = append(menuItems, "", dim.Render(m.host))
+	menuItems = append(menuItems, "", dim.Render(m.host), "", dim.Render("s: 設定"))
 	menu := lipgloss.NewStyle().Width(menuWidth).Render(strings.Join(menuItems, "\n"))
 
 	name := m.config.User.Name

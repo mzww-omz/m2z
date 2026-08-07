@@ -22,19 +22,21 @@ type model struct {
 	viewport   viewport.Model
 	kitty      *kittyRenderer
 
-	host         string
-	session      string
-	authLink     string
-	config       Config
-	stream       *streamClient
-	menu         int
-	notes        []Note
-	selected     int
-	hasMore      bool
-	loadingOlder bool
-	busy         bool
-	status       string
-	err          error
+	host          string
+	session       string
+	authLink      string
+	config        Config
+	stream        *streamClient
+	menu          int
+	settingsIndex int
+	confirmReset  bool
+	notes         []Note
+	selected      int
+	hasMore       bool
+	loadingOlder  bool
+	busy          bool
+	status        string
+	err           error
 }
 
 func newModel(cfg *Config) model {
@@ -172,7 +174,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
-	if key == "ctrl+c" || (key == "q" && m.screen == mainScreen && m.focus != composerFocus) {
+	if key == "ctrl+c" || (key == "q" && (m.screen == mainScreen || m.screen == settingsScreen) && m.focus != composerFocus) {
 		m.stopStream()
 		return m, tea.Quit
 	}
@@ -206,12 +208,20 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case mainScreen:
 		return m.updateMainKey(msg)
+	case settingsScreen:
+		return m.updateSettingsKey(msg)
 	}
 	return m, nil
 }
 
 func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	if key == "s" && m.focus != composerFocus {
+		m.screen = settingsScreen
+		m.settingsIndex = 0
+		m.confirmReset = false
+		return m, nil
+	}
 	if key == "tab" {
 		m.focus = (m.focus + 1) % 3
 		m.setFocus()
@@ -277,6 +287,41 @@ func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.viewport, cmd = m.viewport.Update(msg)
 		return m, cmd
+	}
+	return m, nil
+}
+
+func (m model) updateSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	if m.confirmReset {
+		switch key {
+		case "y", "enter":
+			m.confirmReset = false
+			m.status, m.err = "アイコンキャッシュを削除しました。再取得中…", nil
+			return m, m.resetAvatarCache()
+		case "n", "esc":
+			m.confirmReset = false
+		}
+		return m, nil
+	}
+	if key == "esc" {
+		m.screen, m.confirmReset = mainScreen, false
+		return m, nil
+	}
+	if key == "j" || key == "down" {
+		m.settingsIndex = (m.settingsIndex + 1) % 2
+		return m, nil
+	}
+	if key == "k" || key == "up" {
+		m.settingsIndex = (m.settingsIndex + 1) % 2
+		return m, nil
+	}
+	if key == "enter" {
+		if m.settingsIndex == 0 {
+			m.confirmReset = true
+			return m, nil
+		}
+		m.screen = mainScreen
 	}
 	return m, nil
 }

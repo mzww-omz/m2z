@@ -21,6 +21,7 @@ const (
 	setupScreen screen = iota
 	authScreen
 	mainScreen
+	settingsScreen
 )
 
 type focus uint8
