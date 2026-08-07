@@ -36,15 +36,32 @@ type timelineResult struct {
 	err   error
 }
 
+type olderTimelineResult struct {
+	notes []Note
+	err   error
+}
+
 type postResult struct{ err error }
 
 func timelineCmd(host, token string, kind int) tea.Cmd {
 	return func() tea.Msg {
-		path := []string{"/api/notes/timeline", "/api/notes/local-timeline", "/api/notes/global-timeline"}[min(kind, 2)]
 		var notes []Note
-		err := apiCall(context.Background(), host+path, token, map[string]any{"i": token, "limit": requestLimit}, &notes)
+		err := apiCall(context.Background(), host+timelinePath(kind), token, map[string]any{"i": token, "limit": requestLimit}, &notes)
 		return timelineResult{notes: notes, err: err}
 	}
+}
+
+func olderTimelineCmd(host, token string, kind int, untilID string) tea.Cmd {
+	return func() tea.Msg {
+		var notes []Note
+		payload := map[string]any{"i": token, "limit": requestLimit, "untilId": untilID}
+		err := apiCall(context.Background(), host+timelinePath(kind), token, payload, &notes)
+		return olderTimelineResult{notes: notes, err: err}
+	}
+}
+
+func timelinePath(kind int) string {
+	return []string{"/api/notes/timeline", "/api/notes/local-timeline", "/api/notes/global-timeline"}[min(kind, 2)]
 }
 
 func postCmd(host, token, text string) tea.Cmd {

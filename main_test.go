@@ -31,3 +31,19 @@ func TestStreamingURL(t *testing.T) {
 		t.Fatal("unexpected timeline channel mapping")
 	}
 }
+
+func TestOlderTimelineAppendsNotes(t *testing.T) {
+	m := newModel(&Config{Host: "https://misskey.example", Token: "token"})
+	m.screen = mainScreen
+	m.notes = []Note{{ID: "new"}}
+	m.selected = 0
+	m.hasMore = true
+
+	updated, _ := m.Update(olderTimelineResult{
+		notes: []Note{{ID: "old"}},
+	})
+	got := updated.(model)
+	if len(got.notes) != 2 || got.notes[1].ID != "old" || got.selected != 1 {
+		t.Fatalf("older notes were not appended: %+v", got.notes)
+	}
+}

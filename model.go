@@ -20,17 +20,19 @@ type model struct {
 	composer   textarea.Model
 	viewport   viewport.Model
 
-	host     string
-	session  string
-	authLink string
-	config   Config
-	stream   *streamClient
-	menu     int
-	notes    []Note
-	selected int
-	busy     bool
-	status   string
-	err      error
+	host         string
+	session      string
+	authLink     string
+	config       Config
+	stream       *streamClient
+	menu         int
+	notes        []Note
+	selected     int
+	hasMore      bool
+	loadingOlder bool
+	busy         bool
+	status       string
+	err          error
 }
 
 func newModel(cfg *Config) model {
@@ -114,9 +116,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.notes, m.selected, m.err = msg.notes, 0, nil
+		m.hasMore = len(msg.notes) == requestLimit
+		m.loadingOlder = false
 		m.status = fmt.Sprintf("%d件", len(msg.notes))
 		m.updateViewport()
 		return m, m.ensureStream()
+	case olderTimelineResult:
+		m.loadingOlder = false
+		if msg.err != nil {
+			m.err, m.status = msg.err, "過去の投稿を読み込めませんでした"
+			return m, nil
+		}
+		seen := make(map[string]struct{}, len(m.notes))
+		for _, note := range m.notes {
+			seen[note.ID] = struct{}{}
+		}
+		added := 0
+		for _, note := range msg.notes {
+			if _, ok := seen[note.ID]; ok {
+				continue
+			}
+			m.notes = append(m.notes, note)
+			seen[note.ID] = struct{}{}
+			added++
+		}
+		m.hasMore = len(msg.notes) == requestLimit
+		if added > 0 {
+			m.selected = min(m.selected+1, len(m.notes)-1)
+		}
+		m.status = fmt.Sprintf("%d件", len(m.notes))
+		m.updateViewport()
+		return m, nil
 	case streamNote, streamStatus, streamStopped:
 		return m.streamMessage(msg)
 	case postResult:
@@ -211,6 +241,12 @@ func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if m.selected < len(m.notes)-1 {
 			m.selected++
 			m.updateViewport()
+		} else if len(m.notes) > 0 && m.hasMore && !m.busy && !m.loadingOlder {
+			m.loadingOlder = true
+			m.status = "過去の投稿を読み込み中…"
+			return m, olderTimelineCmd(m.host, m.config.Token, m.menu, m.notes[len(m.notes)-1].ID)
+		} else if !m.loadingOlder && !m.hasMore {
+			m.status = "これ以上過去の投稿はありません"
 		}
 		return m, nil
 	}

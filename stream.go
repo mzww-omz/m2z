@@ -261,9 +261,6 @@ func (m model) streamNote(msg streamNote) (model, tea.Cmd) {
 		m.selected++
 	}
 	m.notes = append([]Note{msg.note}, m.notes...)
-	if len(m.notes) > requestLimit {
-		m.notes = m.notes[:requestLimit]
-	}
 	m.status, m.err = "リアルタイム更新", nil
 	m.updateViewport()
 	return m, m.stream.next()
