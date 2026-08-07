@@ -86,6 +86,20 @@ func TestSelectedCursorAppearsBeforeAvatar(t *testing.T) {
 	}
 }
 
+func TestLoadingAvatarPlaceholder(t *testing.T) {
+	m := newModel(nil)
+	m.notes = []Note{{ID: "1", User: User{Name: "user", Username: "user", AvatarURL: "https://example/avatar"}}}
+	m.kitty = &kittyRenderer{
+		enabled: true,
+		images: map[string]*kittyImage{
+			"https://example/avatar": {id: 42, loading: true},
+		},
+	}
+	if !strings.Contains(m.renderNote(0, 80), "◌") {
+		t.Fatal("loading avatar placeholder is missing")
+	}
+}
+
 func TestKittyUploadAndPlaceholder(t *testing.T) {
 	upload := kittyUpload([]byte("png"), 42)
 	if !strings.Contains(upload, "a=t,f=100,i=42") || !strings.Contains(upload, "a=p,U=1,i=42,c=4,r=2") {
