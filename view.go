@@ -135,13 +135,15 @@ func (m model) renderNote(index, width int) string {
 	if note.Renote != nil {
 		text = "↻ リノート\n" + strings.TrimSpace(note.Renote.Text)
 	}
-	avatar := m.avatarPlaceholder(note.User.AvatarURL)
 	header := fmt.Sprintf("%s %s  %s", name, handle, dim.Render(when))
+	details := fmt.Sprintf("%s%s\n%s", prefix, header, text)
+	avatar := m.avatarPlaceholder(note.User.AvatarURL)
 	if avatar != "" {
-		header = avatar + " " + header
+		detailsWidth := max(1, width-2-kittyColumns-1)
+		details = lipgloss.NewStyle().Width(detailsWidth).Render(details)
+		details = lipgloss.JoinHorizontal(lipgloss.Top, avatar, " ", details)
 	}
-	block := fmt.Sprintf("%s%s\n%s", prefix, header, text)
-	return style.Width(max(1, width-2)).Padding(0, 1).Render(block)
+	return style.Width(max(1, width-2)).Padding(0, 1).Render(details)
 }
 
 func (m model) selectedLineOffset(width int) int {

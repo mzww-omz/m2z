@@ -26,8 +26,8 @@ const (
 	maxAvatarBytes     = 8 << 20
 	maxAvatarDimension = 2048
 	avatarSize         = 128
-	kittyColumns       = 2
-	kittyRows          = 1
+	kittyColumns       = 4
+	kittyRows          = 2
 	kittyChunkSize     = 4096
 )
 
@@ -239,12 +239,17 @@ func kittyPlaceholder(id uint32) string {
 	red, green, blue := byte(low>>16), byte(low>>8), byte(low)
 	var out strings.Builder
 	fmt.Fprintf(&out, "\x1b[38;2;%d;%d;%dm", red, green, blue)
-	for column := 0; column < kittyColumns; column++ {
-		out.WriteRune('\U0010EEEE')
-		out.WriteRune('\u0305')
-		out.WriteRune(rune(0x0305 + column))
-		if high := id >> 24; high > 0 {
-			out.WriteRune(rune(0x0305 + high))
+	for row := 0; row < kittyRows; row++ {
+		if row > 0 {
+			out.WriteByte('\n')
+		}
+		for column := 0; column < kittyColumns; column++ {
+			out.WriteRune('\U0010EEEE')
+			out.WriteRune(rune(0x0305 + row))
+			out.WriteRune(rune(0x0305 + column))
+			if high := id >> 24; high > 0 {
+				out.WriteRune(rune(0x0305 + high))
+			}
 		}
 	}
 	out.WriteString("\x1b[39m")

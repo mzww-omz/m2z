@@ -53,11 +53,11 @@ func TestOlderTimelineAppendsNotes(t *testing.T) {
 
 func TestKittyUploadAndPlaceholder(t *testing.T) {
 	upload := kittyUpload([]byte("png"), 42)
-	if !strings.Contains(upload, "a=t,f=100,i=42") || !strings.Contains(upload, "a=p,U=1,i=42,c=2,r=1") {
+	if !strings.Contains(upload, "a=t,f=100,i=42") || !strings.Contains(upload, "a=p,U=1,i=42,c=4,r=2") {
 		t.Fatalf("invalid Kitty upload sequence: %q", upload)
 	}
 	placeholder := kittyPlaceholder(42)
-	if !strings.Contains(placeholder, string(rune(0x10EEEE))) {
-		t.Fatalf("missing Kitty placeholder: %q", placeholder)
+	if !strings.Contains(placeholder, string(rune(0x10EEEE))) || strings.Count(placeholder, "\n") != 1 {
+		t.Fatalf("invalid Kitty placeholder size: %q", placeholder)
 	}
 }
