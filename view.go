@@ -14,7 +14,7 @@ var (
 	accent        = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	dim           = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	errorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-	selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true)
+	selectedStyle = lipgloss.NewStyle().Bold(true)
 )
 
 func (m model) View() string {
