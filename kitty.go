@@ -31,6 +31,11 @@ const (
 	kittyChunkSize     = 4096
 )
 
+var kittyDiacritics = []rune{
+	'\u0305', '\u030d', '\u030e', '\u0310',
+	'\u0312', '\u033d', '\u033e', '\u033f',
+}
+
 type avatarResult struct {
 	url  string
 	data []byte
@@ -245,15 +250,22 @@ func kittyPlaceholder(id uint32) string {
 		fmt.Fprintf(&out, "\x1b[38;2;%d;%d;%dm", red, green, blue)
 		for column := 0; column < kittyColumns; column++ {
 			out.WriteRune('\U0010EEEE')
-			out.WriteRune(rune(0x0305 + row))
-			out.WriteRune(rune(0x0305 + column))
+			out.WriteRune(kittyDiacritic(uint32(row)))
+			out.WriteRune(kittyDiacritic(uint32(column)))
 			if high := id >> 24; high > 0 {
-				out.WriteRune(rune(0x0305 + high))
+				out.WriteRune(kittyDiacritic(high))
 			}
 		}
 		out.WriteString("\x1b[39m")
 	}
 	return out.String()
+}
+
+func kittyDiacritic(value uint32) rune {
+	if value >= uint32(len(kittyDiacritics)) {
+		return kittyDiacritics[0]
+	}
+	return kittyDiacritics[value]
 }
 
 func batchCommands(cmds ...tea.Cmd) tea.Cmd {
