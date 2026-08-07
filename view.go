@@ -99,33 +99,47 @@ func (m model) renderNotes(width int) string {
 	if len(m.notes) == 0 {
 		return dim.Render("ノートがありません")
 	}
-	var out []string
-	for i, note := range m.notes {
-		prefix := "  "
-		style := lipgloss.NewStyle()
-		if i == m.selected {
-			prefix = "▸ "
-			style = selectedStyle
-		}
-		name := note.User.Name
-		if name == "" {
-			name = note.User.Username
-		}
-		handle := "@" + note.User.Username
-		when := note.CreatedAt
-		if t, err := time.Parse(time.RFC3339, note.CreatedAt); err == nil {
-			when = t.Local().Format("01/02 15:04")
-		}
-		text := strings.TrimSpace(note.Text)
-		if text == "" {
-			text = "[本文なし]"
-		}
-		if note.Renote != nil {
-			text = "↻ リノート\n" + strings.TrimSpace(note.Renote.Text)
-		}
-		block := fmt.Sprintf("%s%s %s  %s\n%s", prefix, name, handle, dim.Render(when), text)
-		out = append(out, style.Width(max(1, width-2)).Padding(0, 1).Render(block))
+	blocks := make([]string, 0, len(m.notes))
+	for i := range m.notes {
+		blocks = append(blocks, m.renderNote(i, width))
 	}
 	divider := dim.Render(strings.Repeat("─", max(1, width-2)))
-	return strings.Join(out, "\n"+divider+"\n")
+	return strings.Join(blocks, "\n"+divider+"\n")
+}
+
+func (m model) renderNote(index, width int) string {
+	note := m.notes[index]
+	prefix := "  "
+	style := lipgloss.NewStyle()
+	if index == m.selected {
+		prefix = "▸ "
+		style = selectedStyle
+	}
+	name := note.User.Name
+	if name == "" {
+		name = note.User.Username
+	}
+	handle := "@" + note.User.Username
+	when := note.CreatedAt
+	if t, err := time.Parse(time.RFC3339, note.CreatedAt); err == nil {
+		when = t.Local().Format("01/02 15:04")
+	}
+	text := strings.TrimSpace(note.Text)
+	if text == "" {
+		text = "[本文なし]"
+	}
+	if note.Renote != nil {
+		text = "↻ リノート\n" + strings.TrimSpace(note.Renote.Text)
+	}
+	block := fmt.Sprintf("%s%s %s  %s\n%s", prefix, name, handle, dim.Render(when), text)
+	return style.Width(max(1, width-2)).Padding(0, 1).Render(block)
+}
+
+func (m model) selectedLineOffset(width int) int {
+	offset := 0
+	dividerLines := 2
+	for i := 0; i < m.selected && i < len(m.notes); i++ {
+		offset += lipgloss.Height(m.renderNote(i, width)) + dividerLines
+	}
+	return offset
 }

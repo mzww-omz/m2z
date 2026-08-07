@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type model struct {
@@ -299,9 +300,22 @@ func (m *model) updateViewport() {
 	if m.screen != mainScreen || m.width < 1 {
 		return
 	}
-	m.viewport.SetContent(m.renderNotes(max(1, m.width-menuWidth-1)))
+	width := max(1, m.width-menuWidth-1)
+	m.viewport.SetContent(m.renderNotes(width))
 	if m.selected == 0 {
 		m.viewport.GotoTop()
+		return
+	}
+	selectedLine := m.selectedLineOffset(width)
+	visibleLines := m.viewport.VisibleLineCount()
+	if selectedLine < m.viewport.YOffset {
+		m.viewport.SetYOffset(selectedLine)
+		return
+	}
+	selectedHeight := lipgloss.Height(m.renderNote(m.selected, width))
+	bottom := selectedLine + selectedHeight
+	if bottom > m.viewport.YOffset+visibleLines {
+		m.viewport.SetYOffset(bottom - visibleLines)
 	}
 }
 
