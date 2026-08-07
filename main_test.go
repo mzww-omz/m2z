@@ -57,7 +57,9 @@ func TestKittyUploadAndPlaceholder(t *testing.T) {
 		t.Fatalf("invalid Kitty upload sequence: %q", upload)
 	}
 	placeholder := kittyPlaceholder(42)
-	if !strings.Contains(placeholder, string(rune(0x10EEEE))) || strings.Count(placeholder, "\n") != 1 {
+	if !strings.Contains(placeholder, string(rune(0x10EEEE))) ||
+		strings.Count(placeholder, "\n") != kittyRows-1 ||
+		strings.Count(placeholder, "\x1b[38;2;") != kittyRows {
 		t.Fatalf("invalid Kitty placeholder size: %q", placeholder)
 	}
 }

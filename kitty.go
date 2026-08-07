@@ -238,11 +238,11 @@ func kittyPlaceholder(id uint32) string {
 	low := id & 0xFFFFFF
 	red, green, blue := byte(low>>16), byte(low>>8), byte(low)
 	var out strings.Builder
-	fmt.Fprintf(&out, "\x1b[38;2;%d;%d;%dm", red, green, blue)
 	for row := 0; row < kittyRows; row++ {
 		if row > 0 {
 			out.WriteByte('\n')
 		}
+		fmt.Fprintf(&out, "\x1b[38;2;%d;%d;%dm", red, green, blue)
 		for column := 0; column < kittyColumns; column++ {
 			out.WriteRune('\U0010EEEE')
 			out.WriteRune(rune(0x0305 + row))
@@ -251,8 +251,8 @@ func kittyPlaceholder(id uint32) string {
 				out.WriteRune(rune(0x0305 + high))
 			}
 		}
+		out.WriteString("\x1b[39m")
 	}
-	out.WriteString("\x1b[39m")
 	return out.String()
 }
 
