@@ -222,7 +222,7 @@ func (k *kittyRenderer) takeUploads() string {
 	}
 	for _, avatarURL := range urls {
 		img := k.images[avatarURL]
-		out.WriteString(kittyUploadMode(img.data, img.id, img.columns, img.rows, img.autoSize))
+		out.WriteString(kittyUpload(img.data, img.id, img.columns, img.rows))
 		img.uploaded = true
 	}
 	return out.String()
@@ -295,10 +295,6 @@ func avatarPNG(data []byte) ([]byte, error) {
 }
 
 func kittyUpload(data []byte, id uint32, columns, rows int) string {
-	return kittyUploadMode(data, id, columns, rows, false)
-}
-
-func kittyUploadMode(data []byte, id uint32, columns, rows int, autoSize bool) string {
 	encoded := base64.StdEncoding.EncodeToString(data)
 	var out strings.Builder
 	for start := 0; start < len(encoded); start += kittyChunkSize {
@@ -310,11 +306,7 @@ func kittyUploadMode(data []byte, id uint32, columns, rows int, autoSize bool) s
 		}
 		control := fmt.Sprintf("m=%d", mode)
 		if start == 0 {
-			if autoSize {
-				control = fmt.Sprintf("a=T,U=1,f=100,i=%d,c=%d,q=2,%s", id, columns, control)
-			} else {
-				control = fmt.Sprintf("a=T,U=1,f=100,i=%d,c=%d,r=%d,q=2,%s", id, columns, rows, control)
-			}
+			control = fmt.Sprintf("a=T,U=1,f=100,i=%d,c=%d,r=%d,q=2,%s", id, columns, rows, control)
 		}
 		out.WriteString("\x1b_G")
 		out.WriteString(control)
