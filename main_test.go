@@ -70,6 +70,22 @@ func TestMouseSelectsTimelineMenu(t *testing.T) {
 	}
 }
 
+func TestSelectedCursorAppearsBeforeAvatar(t *testing.T) {
+	m := newModel(nil)
+	m.notes = []Note{{ID: "1", User: User{Name: "user", Username: "user", AvatarURL: "https://example/avatar"}}}
+	m.selected = 0
+	m.kitty = &kittyRenderer{
+		enabled: true,
+		images: map[string]*kittyImage{
+			"https://example/avatar": {id: 42, ready: true},
+		},
+	}
+	rendered := m.renderNote(0, 80)
+	if strings.Index(rendered, "▸") >= strings.Index(rendered, string(rune(0x10EEEE))) {
+		t.Fatalf("cursor is not before avatar: %q", rendered)
+	}
+}
+
 func TestKittyUploadAndPlaceholder(t *testing.T) {
 	upload := kittyUpload([]byte("png"), 42)
 	if !strings.Contains(upload, "a=t,f=100,i=42") || !strings.Contains(upload, "a=p,U=1,i=42,c=4,r=2") {
