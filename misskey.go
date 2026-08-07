@@ -18,13 +18,41 @@ type User struct {
 	AvatarURL string `json:"avatarUrl"`
 }
 
+type EmojiRefs map[string]string
+
+func (e *EmojiRefs) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if string(data) == "null" {
+		*e = nil
+		return nil
+	}
+	var object map[string]string
+	if len(data) > 0 && data[0] == '{' {
+		if err := json.Unmarshal(data, &object); err != nil {
+			return err
+		}
+		*e = object
+		return nil
+	}
+	var names []string
+	if err := json.Unmarshal(data, &names); err != nil {
+		return err
+	}
+	object = make(map[string]string, len(names))
+	for _, name := range names {
+		object[name] = ""
+	}
+	*e = object
+	return nil
+}
+
 type Note struct {
-	ID        string   `json:"id"`
-	CreatedAt string   `json:"createdAt"`
-	Text      string   `json:"text"`
-	Emojis    []string `json:"emojis"`
-	User      User     `json:"user"`
-	Renote    *Note    `json:"renote"`
+	ID        string    `json:"id"`
+	CreatedAt string    `json:"createdAt"`
+	Text      string    `json:"text"`
+	Emojis    EmojiRefs `json:"emojis"`
+	User      User      `json:"user"`
+	Renote    *Note     `json:"renote"`
 }
 
 type Meta struct {

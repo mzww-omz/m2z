@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -34,6 +35,24 @@ func TestStreamingURL(t *testing.T) {
 	}
 	if channelName(0) != "homeTimeline" || channelName(1) != "localTimeline" || channelName(2) != "globalTimeline" {
 		t.Fatal("unexpected timeline channel mapping")
+	}
+}
+
+func TestNoteEmojiRefsAcceptObjectAndArray(t *testing.T) {
+	var object Note
+	if err := json.Unmarshal([]byte(`{"emojis":{"wide":"https://example/wide.png"}}`), &object); err != nil {
+		t.Fatal(err)
+	}
+	if object.Emojis["wide"] != "https://example/wide.png" {
+		t.Fatalf("object emoji refs not decoded: %#v", object.Emojis)
+	}
+
+	var array Note
+	if err := json.Unmarshal([]byte(`{"emojis":["smile"]}`), &array); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := array.Emojis["smile"]; !ok {
+		t.Fatalf("array emoji refs not decoded: %#v", array.Emojis)
 	}
 }
 
