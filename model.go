@@ -24,24 +24,6 @@ type model struct {
 	kitty         *kittyRenderer
 	emojis        map[string]CustomEmoji
 
-<<<<<<< HEAD
-	host          string
-	session       string
-	authLink      string
-	config        Config
-	stream        *streamClient
-	menu          int
-	settingsIndex int
-	confirmReset  bool
-	notes         []Note
-	selected      int
-	replyTo       *Note
-	hasMore       bool
-	loadingOlder  bool
-	busy          bool
-	status        string
-	err           error
-=======
 	host              string
 	session           string
 	authLink          string
@@ -52,6 +34,7 @@ type model struct {
 	confirmReset      bool
 	notes             []Note
 	selected          int
+	replyTo           *Note
 	hasMore           bool
 	loadingOlder      bool
 	busy              bool
@@ -60,7 +43,6 @@ type model struct {
 	refreshSelectedID string
 	status            string
 	err               error
->>>>>>> agent/reaction
 }
 
 func newModel(cfg *Config) model {
@@ -314,16 +296,6 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
-<<<<<<< HEAD
-	if key == "esc" && m.replyTo != nil {
-		m.replyTo = nil
-		m.composer.Reset()
-		m.composer.Placeholder = "投稿内容"
-		m.resize()
-		m.focus = contentFocus
-		m.setFocus()
-		m.status = ""
-=======
 	if m.reactionMode {
 		if key == "esc" {
 			m.reactionMode = false
@@ -359,7 +331,16 @@ func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.confirmRenote = false
 			m.status = ""
 		}
->>>>>>> agent/reaction
+		return m, nil
+	}
+	if key == "esc" && m.replyTo != nil {
+		m.replyTo = nil
+		m.composer.Reset()
+		m.composer.Placeholder = "投稿内容"
+		m.resize()
+		m.focus = contentFocus
+		m.setFocus()
+		m.status = ""
 		return m, nil
 	}
 	if key == "s" && m.focus != composerFocus {
@@ -387,17 +368,6 @@ func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setFocus()
 		return m, nil
 	}
-<<<<<<< HEAD
-	if key == "R" && m.focus != composerFocus && !m.busy && m.selected >= 0 && m.selected < len(m.notes) {
-		target := m.notes[m.selected]
-		m.replyTo = &target
-		m.composer.Reset()
-		m.composer.Placeholder = "返信内容"
-		m.resize()
-		m.focus = composerFocus
-		m.setFocus()
-		m.status, m.err = "返信内容を入力してください", nil
-=======
 	if key == "a" && m.focus == contentFocus && !m.busy && len(m.notes) > 0 {
 		target := actionNote(m.notes[m.selected])
 		value := "👍"
@@ -413,7 +383,17 @@ func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if key == "n" && m.focus == contentFocus && !m.busy && len(m.notes) > 0 {
 		m.confirmRenote = true
 		m.status = "このノートをリノートしますか？ y/Enter: 実行 n/Esc: キャンセル"
->>>>>>> agent/reaction
+		return m, nil
+	}
+	if key == "R" && m.focus != composerFocus && !m.busy && m.selected >= 0 && m.selected < len(m.notes) {
+		target := m.notes[m.selected]
+		m.replyTo = &target
+		m.composer.Reset()
+		m.composer.Placeholder = "返信内容"
+		m.resize()
+		m.focus = composerFocus
+		m.setFocus()
+		m.status, m.err = "返信内容を入力してください", nil
 		return m, nil
 	}
 	if key == "r" && m.focus != composerFocus && !m.busy {

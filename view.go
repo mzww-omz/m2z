@@ -118,27 +118,16 @@ func (m model) mainView() string {
 	header := accent.Render(items[m.menu]) + "  " + name
 	content := lipgloss.JoinVertical(lipgloss.Left, header, m.viewport.View())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, menu, lipgloss.NewStyle().Width(1).Render("│"), content)
-<<<<<<< HEAD
-	footerLines := []string{m.composer.View(), m.statusLine()}
-	if m.replyTo != nil {
-		footerLines = append([]string{m.replyTargetView()}, footerLines...)
-	}
-	footer := lipgloss.NewStyle().BorderTop(true).Width(m.width).Render(strings.Join(footerLines, "\n"))
-=======
 	composer := m.composer.View()
 	if m.reactionMode {
 		composer = m.reactionInput.View()
 	}
-	footer := lipgloss.NewStyle().BorderTop(true).Width(m.width).Render(composer + "\n" + m.statusLine())
->>>>>>> agent/reaction
-	return lipgloss.JoinVertical(lipgloss.Left, body, footer)
-}
-
-func (m model) statusLine() string {
-	if m.err != nil {
-		return errorStyle.Render(m.status + ": " + m.err.Error())
+	footerLines := []string{composer, m.statusLine()}
+	if m.replyTo != nil {
+		footerLines = append([]string{m.replyTargetView()}, footerLines...)
 	}
-	return dim.Render(m.status)
+	footer := lipgloss.NewStyle().BorderTop(true).Width(m.width).Render(strings.Join(footerLines, "\n"))
+	return lipgloss.JoinVertical(lipgloss.Left, body, footer)
 }
 
 func (m model) replyTargetView() string {
@@ -152,6 +141,13 @@ func (m model) replyTargetView() string {
 		return dim.Render("返信先: " + m.replyTo.User.Name)
 	}
 	return dim.Render("返信先: " + m.replyTo.ID)
+}
+
+func (m model) statusLine() string {
+	if m.err != nil {
+		return errorStyle.Render(m.status + ": " + m.err.Error())
+	}
+	return dim.Render(m.status)
 }
 
 func styleHashtags(text string) string {
