@@ -17,27 +17,31 @@ type model struct {
 	width  int
 	height int
 
-	setupInput textinput.Model
-	composer   textarea.Model
-	viewport   viewport.Model
-	kitty      *kittyRenderer
-	emojis     map[string]CustomEmoji
+	setupInput    textinput.Model
+	reactionInput textinput.Model
+	composer      textarea.Model
+	viewport      viewport.Model
+	kitty         *kittyRenderer
+	emojis        map[string]CustomEmoji
 
-	host          string
-	session       string
-	authLink      string
-	config        Config
-	stream        *streamClient
-	menu          int
-	settingsIndex int
-	confirmReset  bool
-	notes         []Note
-	selected      int
-	hasMore       bool
-	loadingOlder  bool
-	busy          bool
-	status        string
-	err           error
+	host              string
+	session           string
+	authLink          string
+	config            Config
+	stream            *streamClient
+	menu              int
+	settingsIndex     int
+	confirmReset      bool
+	notes             []Note
+	selected          int
+	hasMore           bool
+	loadingOlder      bool
+	busy              bool
+	reactionMode      bool
+	confirmRenote     bool
+	refreshSelectedID string
+	status            string
+	err               error
 }
 
 func newModel(cfg *Config) model {
@@ -48,6 +52,13 @@ func newModel(cfg *Config) model {
 	input.Width = 60
 	input.Focus()
 
+	reactionInput := textinput.New()
+	reactionInput.Prompt = "リアクション: "
+	reactionInput.Placeholder = "👍 または :emoji:"
+	reactionInput.CharLimit = 128
+	reactionInput.Width = 40
+	reactionInput.Blur()
+
 	composer := textarea.New()
 	composer.Placeholder = "投稿内容"
 	composer.CharLimit = 3000
@@ -55,14 +66,15 @@ func newModel(cfg *Config) model {
 	composer.Blur()
 
 	m := model{
-		screen:     setupScreen,
-		focus:      composerFocus,
-		setupInput: input,
-		composer:   composer,
-		viewport:   viewport.New(1, 1),
-		kitty:      newKittyRenderer(),
-		emojis:     make(map[string]CustomEmoji),
-		status:     "サーバーURLを入力してください",
+		screen:        setupScreen,
+		focus:         composerFocus,
+		setupInput:    input,
+		reactionInput: reactionInput,
+		composer:      composer,
+		viewport:      viewport.New(1, 1),
+		kitty:         newKittyRenderer(),
+		emojis:        make(map[string]CustomEmoji),
+		status:        "サーバーURLを入力してください",
 	}
 	if cfg != nil && cfg.Host != "" && cfg.Token != "" {
 		m.screen = mainScreen
@@ -130,11 +142,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, uploadCmd
 	case timelineResult:
 		m.busy = false
+		selectedID := m.refreshSelectedID
+		m.refreshSelectedID = ""
 		if msg.err != nil {
 			m.err, m.status = msg.err, "タイムラインを読み込めませんでした"
 			return m, nil
 		}
 		m.notes, m.selected, m.err = msg.notes, 0, nil
+		for i, note := range m.notes {
+			if note.ID == selectedID {
+				m.selected = i
+				break
+			}
+		}
 		m.hasMore = len(msg.notes) == requestLimit
 		m.loadingOlder = false
 		m.status = fmt.Sprintf("%d件", len(msg.notes))
@@ -181,6 +201,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.composer.Reset()
 		m.status, m.err = "投稿しました", nil
 		return m, timelineCmd(m.host, m.config.Token, m.menu)
+	case reactionResult:
+		if msg.err != nil {
+			m.busy = false
+			m.refreshSelectedID = ""
+			m.err, m.status = msg.err, "リアクションに失敗しました"
+			return m, nil
+		}
+		m.status, m.err = "リアクションしました。更新中…", nil
+		return m, timelineCmd(m.host, m.config.Token, m.menu)
+	case renoteResult:
+		if msg.err != nil {
+			m.busy = false
+			m.refreshSelectedID = ""
+			m.err, m.status = msg.err, "リノートに失敗しました"
+			return m, nil
+		}
+		m.status, m.err = "リノートしました。更新中…", nil
+		return m, timelineCmd(m.host, m.config.Token, m.menu)
 	case tea.MouseMsg:
 		return m.updateMouse(msg)
 	case tea.KeyMsg:
@@ -212,7 +250,7 @@ func (m model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
-	if key == "ctrl+c" || (key == "q" && (m.screen == mainScreen || m.screen == settingsScreen) && m.focus != composerFocus) {
+	if key == "ctrl+c" || (key == "q" && (m.screen == mainScreen || m.screen == settingsScreen) && m.focus != composerFocus && !m.reactionMode && !m.confirmRenote) {
 		m.stopStream()
 		return m, tea.Quit
 	}
@@ -254,6 +292,43 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+	if m.reactionMode {
+		if key == "esc" {
+			m.reactionMode = false
+			m.reactionInput.SetValue("")
+			m.reactionInput.Blur()
+			m.status = ""
+			return m, nil
+		}
+		if key == "enter" {
+			reaction := strings.TrimSpace(m.reactionInput.Value())
+			if reaction == "" {
+				m.status = "リアクションを入力してください"
+				return m, nil
+			}
+			m.reactionMode = false
+			m.reactionInput.Blur()
+			m.busy, m.status, m.err = true, "リアクション中…", nil
+			m.refreshSelectedID = m.selectedNoteID()
+			return m, reactionCmd(m.host, m.config.Token, m.notes[m.selected], reaction)
+		}
+		var cmd tea.Cmd
+		m.reactionInput, cmd = m.reactionInput.Update(msg)
+		return m, cmd
+	}
+	if m.confirmRenote {
+		switch key {
+		case "y", "enter":
+			m.confirmRenote = false
+			m.busy, m.status, m.err = true, "リノート中…", nil
+			m.refreshSelectedID = m.selectedNoteID()
+			return m, renoteCmd(m.host, m.config.Token, m.notes[m.selected])
+		case "n", "esc":
+			m.confirmRenote = false
+			m.status = ""
+		}
+		return m, nil
+	}
 	if key == "s" && m.focus != composerFocus {
 		m.screen = settingsScreen
 		m.settingsIndex = 0
@@ -273,6 +348,23 @@ func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if key == "c" && m.focus != composerFocus {
 		m.focus = composerFocus
 		m.setFocus()
+		return m, nil
+	}
+	if key == "a" && m.focus == contentFocus && !m.busy && len(m.notes) > 0 {
+		target := actionNote(m.notes[m.selected])
+		value := "👍"
+		if target.MyReaction != nil {
+			value = *target.MyReaction
+		}
+		m.reactionInput.SetValue(value)
+		m.reactionInput.Focus()
+		m.reactionMode = true
+		m.status = "リアクションを入力してください（Esc: キャンセル）"
+		return m, nil
+	}
+	if key == "n" && m.focus == contentFocus && !m.busy && len(m.notes) > 0 {
+		m.confirmRenote = true
+		m.status = "このノートをリノートしますか？ y/Enter: 実行 n/Esc: キャンセル"
 		return m, nil
 	}
 	if key == "r" && m.focus != composerFocus && !m.busy {
@@ -364,6 +456,13 @@ func (m model) updateSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) selectedNoteID() string {
+	if m.selected < 0 || m.selected >= len(m.notes) {
+		return ""
+	}
+	return m.notes[m.selected].ID
+}
+
 func (m *model) setFocus() {
 	if m.focus == composerFocus {
 		m.composer.Focus()
@@ -381,6 +480,7 @@ func (m *model) resize() {
 	m.viewport.Width, m.viewport.Height = contentWidth, contentHeight
 	m.composer.SetWidth(max(1, m.width-4))
 	m.composer.SetHeight(composerHeight)
+	m.reactionInput.Width = max(1, m.width-4)
 	m.updateViewport()
 }
 

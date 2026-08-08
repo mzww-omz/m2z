@@ -47,12 +47,14 @@ func (e *EmojiRefs) UnmarshalJSON(data []byte) error {
 }
 
 type Note struct {
-	ID        string    `json:"id"`
-	CreatedAt string    `json:"createdAt"`
-	Text      string    `json:"text"`
-	Emojis    EmojiRefs `json:"emojis"`
-	User      User      `json:"user"`
-	Renote    *Note     `json:"renote"`
+	ID         string         `json:"id"`
+	CreatedAt  string         `json:"createdAt"`
+	Text       string         `json:"text"`
+	Emojis     EmojiRefs      `json:"emojis"`
+	User       User           `json:"user"`
+	Renote     *Note          `json:"renote"`
+	Reactions  map[string]int `json:"reactions"`
+	MyReaction *string        `json:"myReaction"`
 }
 
 type Meta struct {
@@ -72,6 +74,8 @@ type olderTimelineResult struct {
 }
 
 type postResult struct{ err error }
+type reactionResult struct{ err error }
+type renoteResult struct{ err error }
 
 func emojiCatalogCmd(host string) tea.Cmd {
 	return func() tea.Msg {
@@ -124,6 +128,56 @@ func postCmd(host, token, text string) tea.Cmd {
 		err := apiCall(context.Background(), host+"/api/notes/create", token, map[string]any{"i": token, "text": text}, &struct{}{})
 		return postResult{err: err}
 	}
+}
+
+func reactionCmd(host, token string, note Note, reaction string) tea.Cmd {
+	target := actionNote(note)
+	if target.MyReaction != nil && *target.MyReaction == reaction {
+		return reactionDeleteCmd(host, token, target.ID)
+	}
+	return reactionCreateCmd(host, token, target.ID, reaction)
+}
+
+func reactionCreateCmd(host, token, noteID, reaction string) tea.Cmd {
+	return func() tea.Msg {
+		err := apiCall(context.Background(), host+"/api/notes/reactions/create", token, map[string]any{
+			"i":        token,
+			"noteId":   noteID,
+			"reaction": reaction,
+		}, &struct{}{})
+		return reactionResult{err: err}
+	}
+}
+
+func reactionDeleteCmd(host, token, noteID string) tea.Cmd {
+	return func() tea.Msg {
+		err := apiCall(context.Background(), host+"/api/notes/reactions/delete", token, map[string]any{
+			"i":      token,
+			"noteId": noteID,
+		}, &struct{}{})
+		return reactionResult{err: err}
+	}
+}
+
+func renoteCmd(host, token string, note Note) tea.Cmd {
+	target := actionNote(note)
+	return func() tea.Msg {
+		var result struct {
+			CreatedNote Note `json:"createdNote"`
+		}
+		err := apiCall(context.Background(), host+"/api/notes/create", token, map[string]any{
+			"i":        token,
+			"renoteId": target.ID,
+		}, &result)
+		return renoteResult{err: err}
+	}
+}
+
+func actionNote(note Note) Note {
+	if note.Renote != nil {
+		return *note.Renote
+	}
+	return note
 }
 
 func apiCall(ctx context.Context, endpoint, token string, payload any, out any) error {
