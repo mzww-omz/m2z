@@ -17,11 +17,13 @@ type streamClient struct {
 	token string
 	kind  int
 
-	events chan tea.Msg
-	done   chan struct{}
-	once   sync.Once
-	mu     sync.Mutex
-	conn   *websocket.Conn
+	events    chan tea.Msg
+	done      chan struct{}
+	once      sync.Once
+	mu        sync.Mutex
+	conn      *websocket.Conn
+	connectFn func() (*websocket.Conn, error)
+	readFn    func(*websocket.Conn)
 }
 
 type streamNote struct {
@@ -55,7 +57,11 @@ func (m *model) ensureStream() tea.Cmd {
 	if m.stream != nil {
 		m.stream.close()
 	}
-	m.stream = newStreamClient(m.host, m.config.Token, m.menu)
+	if m.config.provider() == ProviderMastodon {
+		m.stream = newMastodonStreamClient(m.config, m.menu)
+	} else {
+		m.stream = newStreamClient(m.host, m.config.Token, m.menu)
+	}
 	return m.stream.next()
 }
 
@@ -129,6 +135,9 @@ func (s *streamClient) run() {
 }
 
 func (s *streamClient) connect() (*websocket.Conn, error) {
+	if s.connectFn != nil {
+		return s.connectFn()
+	}
 	endpoint, err := streamingURL(s.host, s.token)
 	if err != nil {
 		return nil, err
@@ -152,6 +161,10 @@ func (s *streamClient) connect() (*websocket.Conn, error) {
 }
 
 func (s *streamClient) read(conn *websocket.Conn) {
+	if s.readFn != nil {
+		s.readFn(conn)
+		return
+	}
 	for {
 		var message streamEnvelope
 		if err := conn.ReadJSON(&message); err != nil {

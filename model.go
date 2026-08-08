@@ -17,6 +17,7 @@ type model struct {
 	width  int
 	height int
 
+<<<<<<< HEAD
 	setupInput    textinput.Model
 	reactionInput textinput.Model
 	composer      textarea.Model
@@ -43,22 +44,56 @@ type model struct {
 	refreshSelectedID string
 	status            string
 	err               error
+=======
+	setupInput textinput.Model
+	authInput  textinput.Model
+	composer   textarea.Model
+	viewport   viewport.Model
+	kitty      *kittyRenderer
+	emojis     map[string]CustomEmoji
+
+	host          string
+	session       string
+	authLink      string
+	pkceVerifier  string
+	config        Config
+	stream        *streamClient
+	menu          int
+	settingsIndex int
+	confirmReset  bool
+	notes         []Note
+	selected      int
+	hasMore       bool
+	loadingOlder  bool
+	busy          bool
+	status        string
+	err           error
+>>>>>>> agent/mastodon
 }
 
 func newModel(cfg *Config) model {
 	input := textinput.New()
 	input.Prompt = "> "
-	input.Placeholder = "https://misskey.example"
+	input.Placeholder = "https://example.social"
 	input.CharLimit = 256
 	input.Width = 60
 	input.Focus()
 
+<<<<<<< HEAD
 	reactionInput := textinput.New()
 	reactionInput.Prompt = "リアクション: "
 	reactionInput.Placeholder = "👍 または :emoji:"
 	reactionInput.CharLimit = 128
 	reactionInput.Width = 40
 	reactionInput.Blur()
+=======
+	authInput := textinput.New()
+	authInput.Prompt = "> "
+	authInput.Placeholder = "認証コード"
+	authInput.CharLimit = 512
+	authInput.Width = 60
+	authInput.Blur()
+>>>>>>> agent/mastodon
 
 	composer := textarea.New()
 	composer.Placeholder = "投稿内容"
@@ -67,6 +102,7 @@ func newModel(cfg *Config) model {
 	composer.Blur()
 
 	m := model{
+<<<<<<< HEAD
 		screen:        setupScreen,
 		focus:         composerFocus,
 		setupInput:    input,
@@ -76,19 +112,33 @@ func newModel(cfg *Config) model {
 		kitty:         newKittyRenderer(),
 		emojis:        make(map[string]CustomEmoji),
 		status:        "サーバーURLを入力してください",
+=======
+		screen:     setupScreen,
+		focus:      composerFocus,
+		setupInput: input,
+		authInput:  authInput,
+		composer:   composer,
+		viewport:   viewport.New(1, 1),
+		kitty:      newKittyRenderer(),
+		emojis:     make(map[string]CustomEmoji),
+		status:     "サーバーURLを入力してください",
+>>>>>>> agent/mastodon
 	}
 	if cfg != nil && cfg.Host != "" && cfg.Token != "" {
 		m.screen = mainScreen
 		m.focus = contentFocus
 		m.host = cfg.Host
 		m.config = *cfg
+		if cfg.StatusMaxCharacters > 0 {
+			m.composer.CharLimit = cfg.StatusMaxCharacters
+		}
 	}
 	return m
 }
 
 func (m model) Init() tea.Cmd {
 	if m.screen == mainScreen {
-		return tea.Sequence(m.kitty.clearCmd(), batchCommands(timelineCmd(m.host, m.config.Token, m.menu), emojiCatalogCmd(m.host)))
+		return tea.Sequence(m.kitty.clearCmd(), batchCommands(timelineCmd(m.config, m.menu), emojiCatalogCmd(m.config)))
 	}
 	return nil
 }
@@ -106,8 +156,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.host = msg.host
+		m.config = Config{
+			Provider:            msg.provider,
+			Host:                msg.host,
+			StreamingURL:        msg.streamingURL,
+			StatusMaxCharacters: msg.statusMaxCharacters,
+		}
+		if msg.statusMaxCharacters > 0 {
+			m.composer.CharLimit = msg.statusMaxCharacters
+		}
+		if msg.provider == ProviderMastodon {
+			m.busy, m.status = true, "Mastodonアプリを登録中…"
+			return m, registerMastodonAppCmd(m.host)
+		}
 		m.session = newSession()
 		m.authLink = m.authURL()
+		m.authInput.Blur()
+		m.screen, m.status, m.err = authScreen, "ブラウザで認証してください", nil
+		return m, openBrowserCmd(m.authLink)
+	case mastodonAppResult:
+		m.busy = false
+		if msg.err != nil {
+			m.err, m.status = msg.err, "Mastodonアプリを登録できませんでした"
+			return m, nil
+		}
+		m.config.ClientID = msg.clientID
+		m.config.ClientSecret = msg.clientSecret
+		m.pkceVerifier = newPKCEVerifier()
+		m.authLink = m.authURL()
+		m.authInput.Reset()
+		m.authInput.Focus()
 		m.screen, m.status, m.err = authScreen, "ブラウザで認証してください", nil
 		return m, openBrowserCmd(m.authLink)
 	case browserResult:
@@ -122,13 +200,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err, m.status = msg.err, "認証を確認できませんでした"
 			return m, nil
 		}
-		m.config = Config{Host: m.host, Token: msg.token, User: msg.user}
+		m.config.Host, m.config.Token, m.config.User = m.host, msg.token, msg.user
+		m.authInput.Blur()
 		if err := saveConfig(m.config); err != nil {
 			m.err, m.status = err, "設定を保存できませんでした"
 			return m, nil
 		}
 		m.screen, m.focus, m.status, m.err = mainScreen, contentFocus, "認証しました。タイムラインを読み込み中…", nil
-		return m, tea.Sequence(m.kitty.clearCmd(), batchCommands(timelineCmd(m.host, m.config.Token, m.menu), emojiCatalogCmd(m.host)))
+		return m, tea.Sequence(m.kitty.clearCmd(), batchCommands(timelineCmd(m.config, m.menu), emojiCatalogCmd(m.config)))
 	case emojiCatalogResult:
 		if msg.err == nil {
 			m.emojis = buildEmojiCatalog(msg.emojis)
@@ -204,6 +283,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.replyTo = nil
 		m.resize()
 		m.status, m.err = "投稿しました", nil
+<<<<<<< HEAD
 		return m, timelineCmd(m.host, m.config.Token, m.menu)
 	case reactionResult:
 		if msg.err != nil {
@@ -223,6 +303,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.status, m.err = "リノートしました。更新中…", nil
 		return m, timelineCmd(m.host, m.config.Token, m.menu)
+=======
+		return m, timelineCmd(m.config, m.menu)
+>>>>>>> agent/mastodon
 	case tea.MouseMsg:
 		return m.updateMouse(msg)
 	case tea.KeyMsg:
@@ -249,7 +332,7 @@ func (m model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	m.focus = contentFocus
 	m.setFocus()
 	m.busy, m.status, m.err = true, "読み込み中…", nil
-	return m, timelineCmd(m.host, m.config.Token, m.menu)
+	return m, timelineCmd(m.config, m.menu)
 }
 
 func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -275,15 +358,29 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case authScreen:
 		if key == "esc" {
 			m.screen, m.err, m.status = setupScreen, nil, "サーバーURLを入力してください"
+			m.authInput.Blur()
 			m.setupInput.Focus()
 			return m, nil
 		}
-		if key == "o" && !m.busy {
+		if key == "o" && !m.busy && m.config.provider() != ProviderMastodon {
 			return m, openBrowserCmd(m.authLink)
 		}
 		if key == "enter" && !m.busy {
 			m.busy, m.err, m.status = true, nil, "認証を確認中…"
+			if m.config.provider() == ProviderMastodon {
+				code := strings.TrimSpace(m.authInput.Value())
+				if code == "" {
+					m.busy, m.err, m.status = false, fmt.Errorf("認証コードを入力してください"), "認証を確認できませんでした"
+					return m, nil
+				}
+				return m, mastodonTokenCmd(m.host, m.config.ClientID, m.config.ClientSecret, code, m.pkceVerifier)
+			}
 			return m, checkAuthCmd(m.host, m.session)
+		}
+		if m.config.provider() == ProviderMastodon {
+			var cmd tea.Cmd
+			m.authInput, cmd = m.authInput.Update(msg)
+			return m, cmd
 		}
 		return m, nil
 	case mainScreen:
@@ -398,16 +495,20 @@ func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if key == "r" && m.focus != composerFocus && !m.busy {
 		m.busy, m.status, m.err = true, "更新中…", nil
-		return m, timelineCmd(m.host, m.config.Token, m.menu)
+		return m, timelineCmd(m.config, m.menu)
 	}
 	if m.focus == composerFocus {
 		if key == "enter" && !m.busy && strings.TrimSpace(m.composer.Value()) != "" {
 			m.busy, m.status, m.err = true, "投稿中…", nil
+<<<<<<< HEAD
 			replyID := ""
 			if m.replyTo != nil {
 				replyID = m.replyTo.ID
 			}
 			return m, postCmd(m.host, m.config.Token, m.composer.Value(), replyID)
+=======
+			return m, postCmd(m.config, m.composer.Value())
+>>>>>>> agent/mastodon
 		}
 		var cmd tea.Cmd
 		m.composer, cmd = m.composer.Update(msg)
@@ -423,7 +524,7 @@ func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if len(m.notes) > 0 && m.hasMore && !m.busy && !m.loadingOlder {
 			m.loadingOlder = true
 			m.status = "過去の投稿を読み込み中…"
-			return m, olderTimelineCmd(m.host, m.config.Token, m.menu, m.notes[len(m.notes)-1].ID)
+			return m, olderTimelineCmd(m.config, m.menu, m.notes[len(m.notes)-1].ID)
 		} else if !m.loadingOlder && !m.hasMore {
 			m.status = "これ以上過去の投稿はありません"
 		}
@@ -444,7 +545,7 @@ func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.focus = contentFocus
 		m.setFocus()
 		m.busy, m.status = true, "読み込み中…"
-		return m, timelineCmd(m.host, m.config.Token, m.menu)
+		return m, timelineCmd(m.config, m.menu)
 	}
 	if m.focus == contentFocus {
 		var cmd tea.Cmd

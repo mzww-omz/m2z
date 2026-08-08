@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
-	"net/http"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -47,6 +44,7 @@ func (e *EmojiRefs) UnmarshalJSON(data []byte) error {
 }
 
 type Note struct {
+<<<<<<< HEAD
 	ID         string         `json:"id"`
 	CreatedAt  string         `json:"createdAt"`
 	Text       string         `json:"text"`
@@ -55,6 +53,15 @@ type Note struct {
 	Renote     *Note          `json:"renote"`
 	Reactions  map[string]int `json:"reactions"`
 	MyReaction *string        `json:"myReaction"`
+=======
+	ID           string    `json:"id"`
+	CreatedAt    string    `json:"createdAt"`
+	Text         string    `json:"text"`
+	Emojis       EmojiRefs `json:"emojis"`
+	User         User      `json:"user"`
+	Renote       *Note     `json:"renote"`
+	ReshareLabel string    `json:"-"`
+>>>>>>> agent/mastodon
 }
 
 type Meta struct {
@@ -77,10 +84,13 @@ type postResult struct{ err error }
 type reactionResult struct{ err error }
 type renoteResult struct{ err error }
 
-func emojiCatalogCmd(host string) tea.Cmd {
+func emojiCatalogCmd(cfg Config) tea.Cmd {
+	if cfg.provider() == ProviderMastodon {
+		return mastodonEmojiCatalogCmd(cfg)
+	}
 	return func() tea.Msg {
 		var raw json.RawMessage
-		if err := apiCall(context.Background(), host+"/api/emojis", "", map[string]any{}, &raw); err != nil {
+		if err := apiCall(context.Background(), cfg.Host+"/api/emojis", "", map[string]any{}, &raw); err != nil {
 			return emojiCatalogResult{err: err}
 		}
 		var emojis []CustomEmoji
@@ -102,19 +112,25 @@ func emojiCatalogCmd(host string) tea.Cmd {
 	}
 }
 
-func timelineCmd(host, token string, kind int) tea.Cmd {
+func timelineCmd(cfg Config, kind int) tea.Cmd {
+	if cfg.provider() == ProviderMastodon {
+		return mastodonTimelineCmd(cfg, kind, "")
+	}
 	return func() tea.Msg {
 		var notes []Note
-		err := apiCall(context.Background(), host+timelinePath(kind), token, map[string]any{"i": token, "limit": requestLimit}, &notes)
+		err := apiCall(context.Background(), cfg.Host+timelinePath(kind), cfg.Token, map[string]any{"i": cfg.Token, "limit": requestLimit}, &notes)
 		return timelineResult{notes: notes, err: err}
 	}
 }
 
-func olderTimelineCmd(host, token string, kind int, untilID string) tea.Cmd {
+func olderTimelineCmd(cfg Config, kind int, untilID string) tea.Cmd {
+	if cfg.provider() == ProviderMastodon {
+		return mastodonTimelineCmd(cfg, kind, untilID)
+	}
 	return func() tea.Msg {
 		var notes []Note
-		payload := map[string]any{"i": token, "limit": requestLimit, "untilId": untilID}
-		err := apiCall(context.Background(), host+timelinePath(kind), token, payload, &notes)
+		payload := map[string]any{"i": cfg.Token, "limit": requestLimit, "untilId": untilID}
+		err := apiCall(context.Background(), cfg.Host+timelinePath(kind), cfg.Token, payload, &notes)
 		return olderTimelineResult{notes: notes, err: err}
 	}
 }
@@ -123,6 +139,7 @@ func timelinePath(kind int) string {
 	return []string{"/api/notes/timeline", "/api/notes/local-timeline", "/api/notes/global-timeline"}[min(kind, 2)]
 }
 
+<<<<<<< HEAD
 func postCmd(host, token, text, replyID string) tea.Cmd {
 	return func() tea.Msg {
 		payload := map[string]any{"i": token, "text": text}
@@ -211,3 +228,14 @@ func apiCall(ctx context.Context, endpoint, token string, payload any, out any) 
 	}
 	return nil
 }
+=======
+func postCmd(cfg Config, text string) tea.Cmd {
+	if cfg.provider() == ProviderMastodon {
+		return mastodonPostCmd(cfg, text)
+	}
+	return func() tea.Msg {
+		err := apiCall(context.Background(), cfg.Host+"/api/notes/create", cfg.Token, map[string]any{"i": cfg.Token, "text": text}, &struct{}{})
+		return postResult{err: err}
+	}
+}
+>>>>>>> agent/mastodon
