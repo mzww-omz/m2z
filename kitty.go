@@ -45,14 +45,15 @@ type avatarResult struct {
 }
 
 type kittyImage struct {
-	id       uint32
-	columns  int
-	rows     int
-	loading  bool
-	ready    bool
-	uploaded bool
-	autoSize bool
-	data     []byte
+	id          uint32
+	placementID uint32
+	columns     int
+	rows        int
+	loading     bool
+	ready       bool
+	uploaded    bool
+	autoSize    bool
+	data        []byte
 }
 
 type kittyRenderer struct {
@@ -115,11 +116,12 @@ func (k *kittyRenderer) prepareAssetMode(rawURL string, columns, rows int, autoS
 		return nil
 	}
 	k.images[rawURL] = &kittyImage{
-		id:       k.nextID,
-		columns:  columns,
-		rows:     rows,
-		loading:  true,
-		autoSize: autoSize,
+		id:          k.nextID,
+		placementID: k.nextID,
+		columns:     columns,
+		rows:        rows,
+		loading:     true,
+		autoSize:    autoSize,
 	}
 	k.nextID++
 	return avatarCmd(rawURL)
@@ -192,7 +194,7 @@ func (k *kittyRenderer) placeholderFor(rawURL string, columns, rows int) string 
 	if !ok || !img.ready {
 		return kittyLoadingPlaceholder(columns, rows)
 	}
-	return kittyPlaceholder(img.id, img.columns, img.rows)
+	return kittyPlaceholderWithPlacement(img.id, img.columns, img.rows, img.placementID)
 }
 
 func kittyLoadingPlaceholder(columns, rows int) string {
@@ -223,7 +225,7 @@ func (k *kittyRenderer) takeUploads() string {
 	}
 	for _, avatarURL := range urls {
 		img := k.images[avatarURL]
-		out.WriteString(kittyUploadMode(img.data, img.id, img.columns, img.rows, img.autoSize))
+		out.WriteString(kittyUploadMode(img.data, img.id, img.columns, img.rows, img.autoSize, img.placementID))
 		img.uploaded = true
 	}
 	return out.String()
@@ -296,12 +298,16 @@ func avatarPNG(data []byte) ([]byte, error) {
 }
 
 func kittyUpload(data []byte, id uint32, columns, rows int) string {
-	return kittyUploadMode(data, id, columns, rows, false)
+	return kittyUploadMode(data, id, columns, rows, false, 0)
 }
 
-func kittyUploadMode(data []byte, id uint32, columns, rows int, virtualPlacement bool) string {
+func kittyUploadMode(data []byte, id uint32, columns, rows int, virtualPlacement bool, placementID uint32) string {
 	encoded := base64.StdEncoding.EncodeToString(data)
 	var out strings.Builder
+	placement := ""
+	if placementID > 0 {
+		placement = fmt.Sprintf(",p=%d", placementID)
+	}
 	for start := 0; start < len(encoded); start += kittyChunkSize {
 		end := min(start+kittyChunkSize, len(encoded))
 		more := end < len(encoded)
@@ -312,9 +318,9 @@ func kittyUploadMode(data []byte, id uint32, columns, rows int, virtualPlacement
 		control := fmt.Sprintf("m=%d", mode)
 		if start == 0 {
 			if virtualPlacement {
-				control = fmt.Sprintf("a=t,t=d,f=100,i=%d,q=2,%s", id, control)
+				control = fmt.Sprintf("a=t,t=d,f=100,i=%d%s,q=2,%s", id, placement, control)
 			} else {
-				control = fmt.Sprintf("a=T,U=1,f=100,i=%d,c=%d,r=%d,q=2,%s", id, columns, rows, control)
+				control = fmt.Sprintf("a=T,U=1,f=100,i=%d,c=%d,r=%d%s,q=2,%s", id, columns, rows, placement, control)
 			}
 		}
 		out.WriteString("\x1b_G")
@@ -324,20 +330,29 @@ func kittyUploadMode(data []byte, id uint32, columns, rows int, virtualPlacement
 		out.WriteString("\x1b\\")
 	}
 	if virtualPlacement {
-		fmt.Fprintf(&out, "\x1b_Ga=p,U=1,i=%d,c=%d,r=%d,q=2;\x1b\\", id, columns, rows)
+		fmt.Fprintf(&out, "\x1b_Ga=p,U=1,i=%d,c=%d,r=%d%s,q=2;\x1b\\", id, columns, rows, placement)
 	}
 	return out.String()
 }
 
 func kittyPlaceholder(id uint32, columns, rows int) string {
-	low := id & 0xFFFFFF
-	red, green, blue := byte(low>>16), byte(low>>8), byte(low)
+	return kittyPlaceholderWithPlacement(id, columns, rows, 0)
+}
+
+func kittyPlaceholderWithPlacement(id uint32, columns, rows int, placementID uint32) string {
+	imageID := id & 0xFFFFFF
+	red, green, blue := byte(imageID>>16), byte(imageID>>8), byte(imageID)
+	placement := placementID & 0xFFFFFF
+	placementRed, placementGreen, placementBlue := byte(placement>>16), byte(placement>>8), byte(placement)
 	var out strings.Builder
 	for row := 0; row < rows; row++ {
 		if row > 0 {
 			out.WriteByte('\n')
 		}
 		fmt.Fprintf(&out, "\x1b[38;2;%d;%d;%dm", red, green, blue)
+		if placementID > 0 {
+			fmt.Fprintf(&out, "\x1b[58;2;%d;%d;%dm", placementRed, placementGreen, placementBlue)
+		}
 		for column := 0; column < columns; column++ {
 			out.WriteRune('\U0010EEEE')
 			out.WriteRune(kittyDiacritic(uint32(row)))
@@ -347,6 +362,9 @@ func kittyPlaceholder(id uint32, columns, rows int) string {
 			}
 		}
 		out.WriteString("\x1b[39m")
+		if placementID > 0 {
+			out.WriteString("\x1b[59m")
+		}
 	}
 	return out.String()
 }
