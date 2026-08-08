@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -14,7 +16,11 @@ var (
 	accent        = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	dim           = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	errorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	hashtagStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	renoteStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
 	selectedStyle = lipgloss.NewStyle().Bold(true)
+
+	hashtagPattern = regexp.MustCompile(`(?m)(^|[^\p{L}\p{N}_])(#([\p{L}\p{N}_]+))`)
 )
 
 func (m model) View() string {
@@ -122,6 +128,16 @@ func (m model) statusLine() string {
 	return dim.Render(m.status)
 }
 
+func styleHashtags(text string) string {
+	return hashtagPattern.ReplaceAllStringFunc(text, func(match string) string {
+		_, size := utf8.DecodeRuneInString(match)
+		if match[0] == '#' {
+			return hashtagStyle.Render(match)
+		}
+		return match[:size] + hashtagStyle.Render(match[size:])
+	})
+}
+
 func (m model) renderNotes(width int) string {
 	if len(m.notes) == 0 {
 		return dim.Render("ノートがありません")
@@ -156,8 +172,9 @@ func (m model) renderNote(index, width int) string {
 		text = "[本文なし]"
 	}
 	if note.Renote != nil {
-		text = "↻ リノート\n" + strings.TrimSpace(note.Renote.Text)
+		text = renoteStyle.Render("↻ リノート") + "\n" + strings.TrimSpace(note.Renote.Text)
 	}
+	text = styleHashtags(text)
 	text, emojiMarkers := m.layoutEmojiText(text)
 	header := fmt.Sprintf("%s %s  %s", name, handle, dim.Render(when))
 	details := fmt.Sprintf("%s\n%s", header, text)

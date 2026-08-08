@@ -91,6 +91,27 @@ func TestMouseSelectsTimelineMenu(t *testing.T) {
 	}
 }
 
+func TestRenderNoteHighlightsHashtagsAndRenote(t *testing.T) {
+	m := newModel(nil)
+	m.notes = []Note{{
+		ID:   "1",
+		Text: "本文",
+		Renote: &Note{
+			Text: "再投稿 #タグ",
+		},
+	}}
+
+	rendered := m.renderNote(0, 80)
+	for _, want := range []string{
+		renoteStyle.Render("↻ リノート"),
+		hashtagStyle.Render("#タグ"),
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered note does not contain styled %q: %q", want, rendered)
+		}
+	}
+}
+
 func TestSelectedCursorAppearsBeforeAvatar(t *testing.T) {
 	m := newModel(nil)
 	m.notes = []Note{{ID: "1", User: User{Name: "user", Username: "user", AvatarURL: "https://example/avatar"}}}
