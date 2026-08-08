@@ -32,9 +32,9 @@ func (m model) View() string {
 
 func (m model) setupView() string {
 	body := strings.Join([]string{
-		accent.Render("m2z — Misskey TUI"),
+		accent.Render("m2z — ソーシャルサーバーTUI"),
 		"",
-		"Misskeyサーバーを追加",
+		"サーバーを追加",
 		"サーバーURL",
 		m.setupInput.View(),
 		"",
@@ -46,21 +46,30 @@ func (m model) setupView() string {
 }
 
 func (m model) authView() string {
-	body := strings.Join([]string{
-		accent.Render("m2z — Misskey認証"),
+	lines := []string{
+		accent.Render("m2z — 認証"),
 		"",
 		m.host + " に接続",
 		"",
 		"ブラウザでログインとアクセス許可を完了してください。",
-		"完了したらEnterで認証を確認します。",
+	}
+	if m.config.provider() == ProviderMastodon {
+		lines = append(lines,
+			"表示された認証コードを入力してください。",
+			m.authInput.View(),
+		)
+	} else {
+		lines = append(lines, "完了したらEnterで認証を確認します。")
+	}
+	lines = append(lines,
 		"",
-		dim.Render("認証URL: " + m.authLink),
+		dim.Render("認証URL: "+m.authLink),
 		"",
 		m.statusLine(),
 		"",
 		dim.Render("o: ブラウザを開く   Enter: 認証確認   Esc: 戻る"),
-	}, "\n")
-	return lipgloss.NewStyle().Padding(2, 4).Render(body)
+	)
+	return lipgloss.NewStyle().Padding(2, 4).Render(strings.Join(lines, "\n"))
 }
 
 func (m model) settingsView() string {
@@ -124,7 +133,7 @@ func (m model) statusLine() string {
 
 func (m model) renderNotes(width int) string {
 	if len(m.notes) == 0 {
-		return dim.Render("ノートがありません")
+		return dim.Render("投稿がありません")
 	}
 	blocks := make([]string, 0, len(m.notes))
 	for i := range m.notes {
@@ -156,7 +165,11 @@ func (m model) renderNote(index, width int) string {
 		text = "[本文なし]"
 	}
 	if note.Renote != nil {
-		text = "↻ リノート\n" + strings.TrimSpace(note.Renote.Text)
+		label := note.ReshareLabel
+		if label == "" {
+			label = "リノート"
+		}
+		text = "↻ " + label + "\n" + strings.TrimSpace(note.Renote.Text)
 	}
 	text, emojiMarkers := m.layoutEmojiText(text)
 	header := fmt.Sprintf("%s %s  %s", name, handle, dim.Render(when))

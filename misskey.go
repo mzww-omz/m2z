@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
-	"net/http"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -47,12 +44,13 @@ func (e *EmojiRefs) UnmarshalJSON(data []byte) error {
 }
 
 type Note struct {
-	ID        string    `json:"id"`
-	CreatedAt string    `json:"createdAt"`
-	Text      string    `json:"text"`
-	Emojis    EmojiRefs `json:"emojis"`
-	User      User      `json:"user"`
-	Renote    *Note     `json:"renote"`
+	ID           string    `json:"id"`
+	CreatedAt    string    `json:"createdAt"`
+	Text         string    `json:"text"`
+	Emojis       EmojiRefs `json:"emojis"`
+	User         User      `json:"user"`
+	Renote       *Note     `json:"renote"`
+	ReshareLabel string    `json:"-"`
 }
 
 type Meta struct {
@@ -73,10 +71,13 @@ type olderTimelineResult struct {
 
 type postResult struct{ err error }
 
-func emojiCatalogCmd(host string) tea.Cmd {
+func emojiCatalogCmd(cfg Config) tea.Cmd {
+	if cfg.provider() == ProviderMastodon {
+		return mastodonEmojiCatalogCmd(cfg)
+	}
 	return func() tea.Msg {
 		var raw json.RawMessage
-		if err := apiCall(context.Background(), host+"/api/emojis", "", map[string]any{}, &raw); err != nil {
+		if err := apiCall(context.Background(), cfg.Host+"/api/emojis", "", map[string]any{}, &raw); err != nil {
 			return emojiCatalogResult{err: err}
 		}
 		var emojis []CustomEmoji
@@ -98,19 +99,25 @@ func emojiCatalogCmd(host string) tea.Cmd {
 	}
 }
 
-func timelineCmd(host, token string, kind int) tea.Cmd {
+func timelineCmd(cfg Config, kind int) tea.Cmd {
+	if cfg.provider() == ProviderMastodon {
+		return mastodonTimelineCmd(cfg, kind, "")
+	}
 	return func() tea.Msg {
 		var notes []Note
-		err := apiCall(context.Background(), host+timelinePath(kind), token, map[string]any{"i": token, "limit": requestLimit}, &notes)
+		err := apiCall(context.Background(), cfg.Host+timelinePath(kind), cfg.Token, map[string]any{"i": cfg.Token, "limit": requestLimit}, &notes)
 		return timelineResult{notes: notes, err: err}
 	}
 }
 
-func olderTimelineCmd(host, token string, kind int, untilID string) tea.Cmd {
+func olderTimelineCmd(cfg Config, kind int, untilID string) tea.Cmd {
+	if cfg.provider() == ProviderMastodon {
+		return mastodonTimelineCmd(cfg, kind, untilID)
+	}
 	return func() tea.Msg {
 		var notes []Note
-		payload := map[string]any{"i": token, "limit": requestLimit, "untilId": untilID}
-		err := apiCall(context.Background(), host+timelinePath(kind), token, payload, &notes)
+		payload := map[string]any{"i": cfg.Token, "limit": requestLimit, "untilId": untilID}
+		err := apiCall(context.Background(), cfg.Host+timelinePath(kind), cfg.Token, payload, &notes)
 		return olderTimelineResult{notes: notes, err: err}
 	}
 }
@@ -119,37 +126,12 @@ func timelinePath(kind int) string {
 	return []string{"/api/notes/timeline", "/api/notes/local-timeline", "/api/notes/global-timeline"}[min(kind, 2)]
 }
 
-func postCmd(host, token, text string) tea.Cmd {
+func postCmd(cfg Config, text string) tea.Cmd {
+	if cfg.provider() == ProviderMastodon {
+		return mastodonPostCmd(cfg, text)
+	}
 	return func() tea.Msg {
-		err := apiCall(context.Background(), host+"/api/notes/create", token, map[string]any{"i": token, "text": text}, &struct{}{})
+		err := apiCall(context.Background(), cfg.Host+"/api/notes/create", cfg.Token, map[string]any{"i": cfg.Token, "text": text}, &struct{}{})
 		return postResult{err: err}
 	}
-}
-
-func apiCall(ctx context.Context, endpoint, token string, payload any, out any) error {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(data))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	client := &http.Client{Timeout: 20 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("HTTP %s", resp.Status)
-	}
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return fmt.Errorf("レスポンスの解析に失敗: %w", err)
-	}
-	return nil
 }

@@ -6,10 +6,29 @@ import (
 	"path/filepath"
 )
 
+type Provider string
+
+const (
+	ProviderMisskey  Provider = "misskey"
+	ProviderMastodon Provider = "mastodon"
+)
+
 type Config struct {
-	Host  string `json:"host"`
-	Token string `json:"token"`
-	User  User   `json:"user"`
+	Provider            Provider `json:"provider,omitempty"`
+	Host                string   `json:"host"`
+	Token               string   `json:"token"`
+	User                User     `json:"user"`
+	ClientID            string   `json:"clientId,omitempty"`
+	ClientSecret        string   `json:"clientSecret,omitempty"`
+	StreamingURL        string   `json:"streamingUrl,omitempty"`
+	StatusMaxCharacters int      `json:"statusMaxCharacters,omitempty"`
+}
+
+func (c Config) provider() Provider {
+	if c.Provider == "" {
+		return ProviderMisskey
+	}
+	return c.Provider
 }
 
 func configPath() (string, error) {

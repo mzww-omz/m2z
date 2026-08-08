@@ -16,8 +16,17 @@ import (
 )
 
 type metaResult struct {
-	host string
-	err  error
+	host                string
+	provider            Provider
+	streamingURL        string
+	statusMaxCharacters int
+	err                 error
+}
+
+type mastodonAppResult struct {
+	clientID     string
+	clientSecret string
+	err          error
 }
 
 type authResult struct {
@@ -29,6 +38,9 @@ type authResult struct {
 type browserResult struct{ err error }
 
 func (m model) authURL() string {
+	if m.config.provider() == ProviderMastodon {
+		return mastodonAuthURL(m.host, m.config.ClientID, m.pkceVerifier)
+	}
 	values := url.Values{}
 	values.Set("name", appName)
 	values.Set("permission", permission)
@@ -41,11 +53,19 @@ func checkHostCmd(raw string) tea.Cmd {
 		if err != nil {
 			return metaResult{err: err}
 		}
+		if instance, err := probeMastodon(context.Background(), host); err == nil {
+			return metaResult{
+				host:                host,
+				provider:            ProviderMastodon,
+				streamingURL:        instance.Configuration.URLs.Streaming,
+				statusMaxCharacters: instance.Configuration.Statuses.MaxCharacters,
+			}
+		}
 		var meta Meta
 		if err := apiCall(context.Background(), host+"/api/meta", "", map[string]any{}, &meta); err != nil {
 			return metaResult{err: err}
 		}
-		return metaResult{host: host}
+		return metaResult{host: host, provider: ProviderMisskey}
 	}
 }
 
