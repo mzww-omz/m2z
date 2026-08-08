@@ -34,6 +34,7 @@ type model struct {
 	menu              int
 	settingsIndex     int
 	confirmReset      bool
+	addingAccount     bool
 	notes             []Note
 	selected          int
 	replyTo           *Note
@@ -119,11 +120,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.host = msg.host
+		accounts := m.config.Accounts
 		m.config = Config{
 			Provider:            msg.provider,
 			Host:                msg.host,
 			StreamingURL:        msg.streamingURL,
 			StatusMaxCharacters: msg.statusMaxCharacters,
+			Accounts:            accounts,
 		}
 		if msg.statusMaxCharacters > 0 {
 			m.composer.CharLimit = msg.statusMaxCharacters
@@ -164,11 +167,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.config.Host, m.config.Token, m.config.User = m.host, msg.token, msg.user
+		m.config.rememberCurrentAccount()
 		m.authInput.Blur()
 		if err := saveConfig(m.config); err != nil {
 			m.err, m.status = err, "設定を保存できませんでした"
 			return m, nil
 		}
+		m.addingAccount = false
 		m.screen, m.focus, m.status, m.err = mainScreen, contentFocus, "認証しました。タイムラインを読み込み中…", nil
 		return m, tea.Sequence(m.kitty.clearCmd(), batchCommands(timelineCmd(m.config, m.menu), emojiCatalogCmd(m.config)))
 	case emojiCatalogResult:
@@ -304,6 +309,13 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.screen {
 	case setupScreen:
 		if key == "esc" {
+			if m.addingAccount {
+				m.addingAccount = false
+				m.screen = settingsScreen
+				m.setupInput.Blur()
+				m.status = ""
+				return m, nil
+			}
 			return m, tea.Quit
 		}
 		if key == "enter" && !m.busy {
@@ -528,21 +540,36 @@ func (m model) updateSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if key == "j" || key == "down" {
-		m.settingsIndex = (m.settingsIndex + 1) % 2
+		m.settingsIndex = (m.settingsIndex + 1) % len(settingsMenuItems)
 		return m, nil
 	}
 	if key == "k" || key == "up" {
-		m.settingsIndex = (m.settingsIndex + 1) % 2
+		m.settingsIndex = (m.settingsIndex + len(settingsMenuItems) - 1) % len(settingsMenuItems)
 		return m, nil
 	}
 	if key == "enter" {
-		if m.settingsIndex == 0 {
+		switch m.settingsIndex {
+		case 0:
+			m.beginAddAccount()
+		case 1:
 			m.confirmReset = true
-			return m, nil
+		default:
+			m.screen = mainScreen
 		}
-		m.screen = mainScreen
 	}
 	return m, nil
+}
+
+func (m *model) beginAddAccount() {
+	m.config.rememberCurrentAccount()
+	m.stopStream()
+	m.addingAccount = true
+	m.setupInput.Reset()
+	m.setupInput.Focus()
+	m.authInput.Reset()
+	m.authInput.Blur()
+	m.screen = setupScreen
+	m.status, m.err = "追加するサーバーURLを入力してください", nil
 }
 
 func (m model) selectedNoteID() string {

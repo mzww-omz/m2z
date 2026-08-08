@@ -13,7 +13,7 @@ const (
 	ProviderMastodon Provider = "mastodon"
 )
 
-type Config struct {
+type Account struct {
 	Provider            Provider `json:"provider,omitempty"`
 	Host                string   `json:"host"`
 	Token               string   `json:"token"`
@@ -24,11 +24,77 @@ type Config struct {
 	StatusMaxCharacters int      `json:"statusMaxCharacters,omitempty"`
 }
 
+type Config struct {
+	Provider            Provider  `json:"provider,omitempty"`
+	Host                string    `json:"host"`
+	Token               string    `json:"token"`
+	User                User      `json:"user"`
+	ClientID            string    `json:"clientId,omitempty"`
+	ClientSecret        string    `json:"clientSecret,omitempty"`
+	StreamingURL        string    `json:"streamingUrl,omitempty"`
+	StatusMaxCharacters int       `json:"statusMaxCharacters,omitempty"`
+	Accounts            []Account `json:"accounts,omitempty"`
+}
+
 func (c Config) provider() Provider {
 	if c.Provider == "" {
 		return ProviderMisskey
 	}
 	return c.Provider
+}
+
+func (c Config) currentAccount() Account {
+	return Account{
+		Provider:            c.Provider,
+		Host:                c.Host,
+		Token:               c.Token,
+		User:                c.User,
+		ClientID:            c.ClientID,
+		ClientSecret:        c.ClientSecret,
+		StreamingURL:        c.StreamingURL,
+		StatusMaxCharacters: c.StatusMaxCharacters,
+	}
+}
+
+func (c *Config) setCurrentAccount(account Account) {
+	c.Provider = account.Provider
+	c.Host = account.Host
+	c.Token = account.Token
+	c.User = account.User
+	c.ClientID = account.ClientID
+	c.ClientSecret = account.ClientSecret
+	c.StreamingURL = account.StreamingURL
+	c.StatusMaxCharacters = account.StatusMaxCharacters
+}
+
+func (c *Config) rememberCurrentAccount() {
+	current := c.currentAccount()
+	for i, account := range c.Accounts {
+		if sameAccount(account, current) {
+			c.Accounts[i] = current
+			return
+		}
+	}
+	c.Accounts = append(c.Accounts, current)
+}
+
+func sameAccount(a, b Account) bool {
+	if a.Provider == "" {
+		a.Provider = ProviderMisskey
+	}
+	if b.Provider == "" {
+		b.Provider = ProviderMisskey
+	}
+	if a.Provider != b.Provider || a.Host != b.Host {
+		return false
+	}
+	if a.User.ID != "" || b.User.ID != "" {
+		return a.User.ID != "" && a.User.ID == b.User.ID
+	}
+	if a.User.Username != "" || b.User.Username != "" {
+		return a.User.Username != "" && a.User.Username == b.User.Username
+	}
+	return a.Token != "" && a.Token == b.Token
 }
 
 func configPath() (string, error) {
@@ -55,6 +121,12 @@ func loadConfig() (*Config, error) {
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, err
+	}
+	if cfg.Host == "" && len(cfg.Accounts) > 0 {
+		cfg.setCurrentAccount(cfg.Accounts[0])
+	}
+	if cfg.Host != "" && cfg.Token != "" {
+		cfg.rememberCurrentAccount()
 	}
 	return &cfg, nil
 }

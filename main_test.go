@@ -329,6 +329,38 @@ func TestAvatarUploadBypassesBufferedView(t *testing.T) {
 	}
 }
 
+func TestRememberCurrentAccount(t *testing.T) {
+	cfg := Config{
+		Provider: ProviderMisskey,
+		Host:     "https://misskey.example",
+		Token:    "token",
+		User:     User{ID: "user"},
+	}
+	cfg.rememberCurrentAccount()
+	if len(cfg.Accounts) != 1 || cfg.Accounts[0].Host != cfg.Host {
+		t.Fatalf("current account was not remembered: %+v", cfg.Accounts)
+	}
+
+	cfg.Token = "new-token"
+	cfg.rememberCurrentAccount()
+	if len(cfg.Accounts) != 1 || cfg.Accounts[0].Token != "new-token" {
+		t.Fatalf("existing account was duplicated instead of updated: %+v", cfg.Accounts)
+	}
+}
+
+func TestSettingsCanStartAddingAccount(t *testing.T) {
+	m := newModel(&Config{Host: "https://misskey.example", Token: "token"})
+	m.screen = mainScreen
+	m.focus = contentFocus
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	updated, _ = updated.(model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got := updated.(model)
+	if got.screen != setupScreen || !got.addingAccount || len(got.config.Accounts) != 1 {
+		t.Fatalf("account add flow did not start: screen=%v adding=%v accounts=%d", got.screen, got.addingAccount, len(got.config.Accounts))
+	}
+}
+
 func TestMissingAvatarPlaceholder(t *testing.T) {
 	m := newModel(nil)
 	m.notes = []Note{{ID: "1", User: User{Name: "user", Username: "user"}}}

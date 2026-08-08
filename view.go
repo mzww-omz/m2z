@@ -38,10 +38,14 @@ func (m model) View() string {
 }
 
 func (m model) setupView() string {
+	title := "サーバーを追加"
+	if m.addingAccount {
+		title = "アカウントを追加"
+	}
 	body := strings.Join([]string{
 		accent.Render("m2z — ソーシャルサーバーTUI"),
 		"",
-		"サーバーを追加",
+		title,
 		"サーバーURL",
 		m.setupInput.View(),
 		"",
@@ -79,8 +83,9 @@ func (m model) authView() string {
 	return lipgloss.NewStyle().Padding(2, 4).Render(strings.Join(lines, "\n"))
 }
 
+var settingsMenuItems = []string{"アカウントを追加", "アイコンキャッシュを削除", "戻る"}
+
 func (m model) settingsView() string {
-	items := []string{"アイコンキャッシュを削除", "戻る"}
 	lines := []string{accent.Render("m2z — 設定"), ""}
 	if m.confirmReset {
 		lines = append(lines,
@@ -90,7 +95,7 @@ func (m model) settingsView() string {
 			dim.Render("y / Enter: 実行   n / Esc: キャンセル"),
 		)
 	} else {
-		for i, item := range items {
+		for i, item := range settingsMenuItems {
 			prefix := "  "
 			if i == m.settingsIndex {
 				prefix = "▸ "
