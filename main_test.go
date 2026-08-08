@@ -481,6 +481,29 @@ func TestLoadingAvatarPlaceholder(t *testing.T) {
 	}
 }
 
+func TestDownloadedImageUsesVirtualPlacement(t *testing.T) {
+	const imageURL = "https://example/image"
+	var output bytes.Buffer
+	k := &kittyRenderer{
+		enabled: true,
+		output:  &output,
+		images: map[string]*kittyImage{
+			imageURL: {id: 7, placementID: 8, columns: imageColumns, rows: imageRows, imageAsset: true, loading: true},
+		},
+	}
+	cmd := k.finish(avatarResult{url: imageURL, data: []byte("png"), width: 1600, height: 900})
+	if cmd == nil {
+		t.Fatal("image upload command is missing")
+	}
+	cmd()
+	if !strings.Contains(output.String(), "a=t,t=d") || !strings.Contains(output.String(), "a=p,U=1") {
+		t.Fatalf("image was not uploaded as a virtual placement: %q", output.String())
+	}
+	if image := k.images[imageURL]; !image.ready || image.columns != imageColumns || image.rows != 5 {
+		t.Fatalf("image aspect ratio was not applied: %+v", image)
+	}
+}
+
 func TestDownloadedEmojiSizeOverridesCatalogFallback(t *testing.T) {
 	const imageURL = "https://example/wide"
 	k := &kittyRenderer{images: map[string]*kittyImage{

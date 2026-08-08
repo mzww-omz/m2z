@@ -195,7 +195,7 @@ func (k *kittyRenderer) finish(msg avatarResult) tea.Cmd {
 		img.columns, img.rows = imageDimensions(msg.width, msg.height)
 	}
 	img.ready = true
-	return k.writeCmd(kittyUploadMode(msg.data, img.id, img.columns, img.rows, img.autoSize, img.placementID))
+	return k.writeCmd(kittyUploadMode(msg.data, img.id, img.columns, img.rows, img.autoSize || img.imageAsset, img.placementID))
 }
 
 func imageDimensions(width, height int) (int, int) {
