@@ -290,6 +290,27 @@ func TestRenderNoteHighlightsHashtagsRenotesAndReactions(t *testing.T) {
 	}
 }
 
+func TestRenderNoteDisplaysNoteLocalReactionEmoji(t *testing.T) {
+	const emojiURL = "https://example.social/party.png"
+	m := newModel(nil)
+	m.kitty = &kittyRenderer{
+		enabled: true,
+		images: map[string]*kittyImage{
+			emojiURL: {id: 1, placementID: 1, columns: 2, rows: 1, ready: true},
+		},
+	}
+	m.notes = []Note{{
+		Text:      "本文",
+		Emojis:    EmojiRefs{"party@example.social": emojiURL},
+		Reactions: map[string]int{":party@example.social:": 2},
+	}}
+
+	rendered := m.renderNote(0, 80)
+	if strings.Contains(rendered, "party@example.social") || !strings.Contains(rendered, string(rune(0x10EEEE))) || !strings.Contains(rendered, "2") {
+		t.Fatalf("note-local reaction emoji was not rendered: %q", rendered)
+	}
+}
+
 func TestContentWarningHidesAndRevealsNote(t *testing.T) {
 	m := newModel(nil)
 	m.kitty = &kittyRenderer{enabled: false}
