@@ -2,8 +2,11 @@ package main
 
 import (
 	"fmt"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -14,7 +17,11 @@ var (
 	accent        = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	dim           = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	errorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	hashtagStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
+	renoteStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
 	selectedStyle = lipgloss.NewStyle().Bold(true)
+
+	hashtagPattern = regexp.MustCompile(`(?m)(^|[^\p{L}\p{N}_])(#([\p{L}\p{N}_]+))`)
 )
 
 func (m model) View() string {
@@ -120,8 +127,29 @@ func (m model) mainView() string {
 	header := accent.Render(items[m.menu]) + "  " + name
 	content := lipgloss.JoinVertical(lipgloss.Left, header, m.viewport.View())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, menu, lipgloss.NewStyle().Width(1).Render("│"), content)
-	footer := lipgloss.NewStyle().BorderTop(true).Width(m.width).Render(m.composer.View() + "\n" + m.statusLine())
+	composer := m.composer.View()
+	if m.reactionMode {
+		composer = m.reactionInput.View()
+	}
+	footerLines := []string{composer, m.statusLine()}
+	if m.replyTo != nil {
+		footerLines = append([]string{m.replyTargetView()}, footerLines...)
+	}
+	footer := lipgloss.NewStyle().BorderTop(true).Width(m.width).Render(strings.Join(footerLines, "\n"))
 	return lipgloss.JoinVertical(lipgloss.Left, body, footer)
+}
+
+func (m model) replyTargetView() string {
+	if m.replyTo == nil {
+		return ""
+	}
+	if m.replyTo.User.Username != "" {
+		return dim.Render("返信先: @" + m.replyTo.User.Username)
+	}
+	if m.replyTo.User.Name != "" {
+		return dim.Render("返信先: " + m.replyTo.User.Name)
+	}
+	return dim.Render("返信先: " + m.replyTo.ID)
 }
 
 func (m model) statusLine() string {
@@ -129,6 +157,16 @@ func (m model) statusLine() string {
 		return errorStyle.Render(m.status + ": " + m.err.Error())
 	}
 	return dim.Render(m.status)
+}
+
+func styleHashtags(text string) string {
+	return hashtagPattern.ReplaceAllStringFunc(text, func(match string) string {
+		_, size := utf8.DecodeRuneInString(match)
+		if match[0] == '#' {
+			return hashtagStyle.Render(match)
+		}
+		return match[:size] + hashtagStyle.Render(match[size:])
+	})
 }
 
 func (m model) renderNotes(width int) string {
@@ -145,6 +183,7 @@ func (m model) renderNotes(width int) string {
 
 func (m model) renderNote(index, width int) string {
 	note := m.notes[index]
+	content := actionNote(note)
 	prefix := "  "
 	textStyle := lipgloss.NewStyle()
 	if index == m.selected {
@@ -160,7 +199,7 @@ func (m model) renderNote(index, width int) string {
 	if t, err := time.Parse(time.RFC3339, note.CreatedAt); err == nil {
 		when = t.Local().Format("01/02 15:04")
 	}
-	text := strings.TrimSpace(note.Text)
+	text := strings.TrimSpace(content.Text)
 	if text == "" {
 		text = "[本文なし]"
 	}
@@ -169,8 +208,12 @@ func (m model) renderNote(index, width int) string {
 		if label == "" {
 			label = "リノート"
 		}
-		text = "↻ " + label + "\n" + strings.TrimSpace(note.Renote.Text)
+		text = renoteStyle.Render("↻ "+label) + "\n" + text
 	}
+	if reactions := reactionSummary(content); reactions != "" {
+		text += "\n" + reactions
+	}
+	text = styleHashtags(text)
 	text, emojiMarkers := m.layoutEmojiText(text)
 	header := fmt.Sprintf("%s %s  %s", name, handle, dim.Render(when))
 	details := fmt.Sprintf("%s\n%s", header, text)
@@ -185,6 +228,40 @@ func (m model) renderNote(index, width int) string {
 	block := lipgloss.JoinHorizontal(lipgloss.Top, prefix, avatar, " ", details)
 	rendered := lipgloss.NewStyle().Padding(0, 1).Render(block)
 	return replaceEmojiMarkers(rendered, emojiMarkers)
+}
+
+func reactionSummary(note Note) string {
+	keys := make([]string, 0, len(note.Reactions)+1)
+	for reaction := range note.Reactions {
+		if reaction != "" {
+			keys = append(keys, reaction)
+		}
+	}
+	if note.MyReaction != nil && *note.MyReaction != "" {
+		found := false
+		for _, reaction := range keys {
+			if reaction == *note.MyReaction {
+				found = true
+				break
+			}
+		}
+		if !found {
+			keys = append(keys, *note.MyReaction)
+		}
+	}
+	if len(keys) == 0 {
+		return ""
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, reaction := range keys {
+		label := reaction
+		if note.MyReaction != nil && *note.MyReaction == reaction {
+			label = accent.Render("★" + reaction)
+		}
+		parts = append(parts, fmt.Sprintf("%s %d", label, note.Reactions[reaction]))
+	}
+	return dim.Render(strings.Join(parts, "  "))
 }
 
 func (m model) selectedLineOffset(width int) int {
