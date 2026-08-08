@@ -27,7 +27,7 @@ const (
 	maxAvatarBytes     = 8 << 20
 	maxAvatarDimension = 2048
 	avatarSize         = 128
-	imageColumns       = 16
+	imageColumns       = 8
 	imageRows          = 8
 	kittyColumns       = 4
 	kittyRows          = 2

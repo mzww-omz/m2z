@@ -481,6 +481,12 @@ func TestLoadingAvatarPlaceholder(t *testing.T) {
 	}
 }
 
+func TestImageColumnsFitPlaceholderDiacritics(t *testing.T) {
+	if imageColumns > len(kittyDiacritics) {
+		t.Fatalf("image columns exceed Kitty placeholder diacritics: %d > %d", imageColumns, len(kittyDiacritics))
+	}
+}
+
 func TestDownloadedImageUsesVirtualPlacement(t *testing.T) {
 	const imageURL = "https://example/image"
 	var output bytes.Buffer
@@ -499,7 +505,7 @@ func TestDownloadedImageUsesVirtualPlacement(t *testing.T) {
 	if !strings.Contains(output.String(), "a=t,t=d") || !strings.Contains(output.String(), "a=p,U=1") {
 		t.Fatalf("image was not uploaded as a virtual placement: %q", output.String())
 	}
-	if image := k.images[imageURL]; !image.ready || image.columns != imageColumns || image.rows != 5 {
+	if image := k.images[imageURL]; !image.ready || image.columns != imageColumns || image.rows != 3 {
 		t.Fatalf("image aspect ratio was not applied: %+v", image)
 	}
 }
