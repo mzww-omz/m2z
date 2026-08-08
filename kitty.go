@@ -66,9 +66,10 @@ func newKittyRenderer() *kittyRenderer {
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv("M2Z_GRAPHICS")))
 	enabled := mode == "kitty" || (mode != "off" && kittyTerminal())
 	return &kittyRenderer{
-		enabled: enabled,
-		nextID:  1,
-		images:  make(map[string]*kittyImage),
+		enabled:      enabled,
+		nextID:       1,
+		images:       make(map[string]*kittyImage),
+		clearPending: enabled,
 	}
 }
 
