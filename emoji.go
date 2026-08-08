@@ -61,7 +61,7 @@ func (m model) layoutEmojiText(text string) (string, map[string]string) {
 	return m.layoutEmojiTextWithRefs(text, nil)
 }
 
-func (m model) layoutEmojiTextWithRefs(text string, refs EmojiRefs) (string, map[string]string) {
+func (m model) layoutEmojiTextWithRefs(text string, refs ...EmojiRefs) (string, map[string]string) {
 	if m.kitty == nil || !m.kitty.enabled || len(m.emojis) == 0 && len(refs) == 0 {
 		return text, nil
 	}
@@ -78,7 +78,7 @@ func (m model) layoutEmojiTextWithRefs(text string, refs EmojiRefs) (string, map
 		segment := text[last:start]
 		out.WriteString(segment)
 		name := text[match[2]:match[3]]
-		emoji, ok := m.emojiForName(name, refs)
+		emoji, ok := m.emojiForName(name, refs...)
 		if !ok {
 			out.WriteString(text[start:end])
 			previousEmoji = false
@@ -99,14 +99,16 @@ func (m model) layoutEmojiTextWithRefs(text string, refs EmojiRefs) (string, map
 	return out.String(), markers
 }
 
-func (m model) emojiForName(name string, refs EmojiRefs) (CustomEmoji, bool) {
+func (m model) emojiForName(name string, refs ...EmojiRefs) (CustomEmoji, bool) {
 	candidates := []string{name}
 	if at := strings.IndexByte(name, '@'); at > 0 {
 		candidates = append(candidates, name[:at])
 	}
 	for _, candidate := range candidates {
-		if rawURL := refs[candidate]; rawURL != "" {
-			return CustomEmoji{Name: candidate, URL: rawURL}, true
+		for _, ref := range refs {
+			if rawURL := ref[candidate]; rawURL != "" {
+				return CustomEmoji{Name: candidate, URL: rawURL}, true
+			}
 		}
 		if emoji, ok := m.emojis[candidate]; ok {
 			return emoji, true
@@ -140,7 +142,7 @@ func replaceEmojiMarkers(text string, replacements map[string]string) string {
 }
 
 func (m *model) loadEmojiAssets(notes []Note) tea.Cmd {
-	if m.kitty == nil || !m.kitty.enabled || len(m.emojis) == 0 {
+	if m.kitty == nil || !m.kitty.enabled {
 		return nil
 	}
 	var cmds []tea.Cmd
@@ -162,7 +164,7 @@ func (m *model) loadEmojiAssets(notes []Note) tea.Cmd {
 				if len(match) != 2 {
 					continue
 				}
-				emoji, ok := m.emojiForName(match[1], note.Emojis)
+				emoji, ok := m.emojiForName(match[1], note.Emojis, note.ReactionEmojis)
 				if !ok || emoji.URL == "" {
 					continue
 				}

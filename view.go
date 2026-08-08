@@ -308,7 +308,7 @@ func (m model) renderNote(index, width int) string {
 		}
 	}
 	text = styleHashtags(text)
-	text, emojiMarkers := m.layoutEmojiTextWithRefs(text, content.Emojis)
+	text, emojiMarkers := m.layoutEmojiTextWithRefs(text, content.Emojis, content.ReactionEmojis)
 	header := fmt.Sprintf("%s %s  %s", name, handle, dim.Render(when))
 	avatar := m.avatarPlaceholder(note.User.AvatarURL)
 	detailsWidth := max(1, width-2)

@@ -75,6 +75,7 @@ type Note struct {
 	Renote         *Note          `json:"renote"`
 	ReshareLabel   string         `json:"-"`
 	Reactions      map[string]int `json:"reactions"`
+	ReactionEmojis EmojiRefs      `json:"reactionEmojis"`
 	MyReaction     *string        `json:"myReaction"`
 }
 

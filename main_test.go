@@ -44,10 +44,10 @@ func TestStreamingURL(t *testing.T) {
 
 func TestNoteReactionFields(t *testing.T) {
 	var note Note
-	if err := json.Unmarshal([]byte(`{"reactions":{"👍":2},"myReaction":"👍"}`), &note); err != nil {
+	if err := json.Unmarshal([]byte(`{"reactions":{"👍":2},"reactionEmojis":{"emoji@fedibird.com":"https://example/emoji.png"},"myReaction":"👍"}`), &note); err != nil {
 		t.Fatal(err)
 	}
-	if note.Reactions["👍"] != 2 || note.MyReaction == nil || *note.MyReaction != "👍" {
+	if note.Reactions["👍"] != 2 || note.ReactionEmojis["emoji@fedibird.com"] != "https://example/emoji.png" || note.MyReaction == nil || *note.MyReaction != "👍" {
 		t.Fatalf("reaction fields not decoded: %+v", note)
 	}
 }
@@ -290,7 +290,7 @@ func TestRenderNoteHighlightsHashtagsRenotesAndReactions(t *testing.T) {
 	}
 }
 
-func TestRenderNoteDisplaysNoteLocalReactionEmoji(t *testing.T) {
+func TestRenderNoteDisplaysReactionEmojiRef(t *testing.T) {
 	const emojiURL = "https://example.social/party.png"
 	m := newModel(nil)
 	m.kitty = &kittyRenderer{
@@ -300,14 +300,30 @@ func TestRenderNoteDisplaysNoteLocalReactionEmoji(t *testing.T) {
 		},
 	}
 	m.notes = []Note{{
-		Text:      "本文",
-		Emojis:    EmojiRefs{"party@example.social": emojiURL},
-		Reactions: map[string]int{":party@example.social:": 2},
+		Text:           "本文",
+		ReactionEmojis: EmojiRefs{"party@example.social": emojiURL},
+		Reactions:      map[string]int{":party@example.social:": 2},
 	}}
 
 	rendered := m.renderNote(0, 80)
 	if strings.Contains(rendered, "party@example.social") || !strings.Contains(rendered, string(rune(0x10EEEE))) || !strings.Contains(rendered, "2") {
 		t.Fatalf("note-local reaction emoji was not rendered: %q", rendered)
+	}
+}
+
+func TestLoadEmojiAssetsUsesReactionEmojiRefsWithoutCatalog(t *testing.T) {
+	const emojiURL = "https://example.social/party.png"
+	m := newModel(nil)
+	m.kitty = &kittyRenderer{enabled: true, images: make(map[string]*kittyImage)}
+	note := Note{
+		ReactionEmojis: EmojiRefs{"party@example.social": emojiURL},
+		Reactions:      map[string]int{":party@example.social:": 2},
+	}
+	if cmd := m.loadEmojiAssets([]Note{note}); cmd == nil {
+		t.Fatal("reaction emoji asset was not prepared without a global catalog")
+	}
+	if image, ok := m.kitty.images[emojiURL]; !ok || !image.loading {
+		t.Fatalf("reaction emoji asset was not cached: ok=%v image=%+v", ok, image)
 	}
 }
 
