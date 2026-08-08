@@ -12,8 +12,16 @@ import (
 type User struct {
 	ID        string `json:"id"`
 	Username  string `json:"username"`
+	Host      string `json:"host,omitempty"`
 	Name      string `json:"name"`
 	AvatarURL string `json:"avatarUrl"`
+}
+
+func (u User) handle() string {
+	if u.Username != "" && u.Host != "" && !strings.Contains(u.Username, "@") {
+		return u.Username + "@" + u.Host
+	}
+	return u.Username
 }
 
 type EmojiRefs map[string]string

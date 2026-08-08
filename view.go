@@ -86,15 +86,16 @@ func (m model) authView() string {
 func (m model) settingsItems() []string {
 	items := make([]string, 0, len(m.config.Accounts)+3)
 	for _, account := range m.config.Accounts {
+		username := account.User.handle()
 		name := account.User.Name
 		if name == "" {
-			name = account.User.Username
+			name = username
 		}
 		if name == "" {
 			name = account.Host
 		}
-		if account.User.Username != "" && account.User.Username != name {
-			name += " @" + account.User.Username
+		if username != "" && username != name {
+			name += " @" + username
 		}
 		if sameAccount(account, m.config.currentAccount()) {
 			name += " (現在)"
@@ -153,7 +154,7 @@ func (m model) mainView() string {
 
 	name := m.config.User.Name
 	if name == "" {
-		name = m.config.User.Username
+		name = m.config.User.handle()
 	}
 	header := accent.Render(items[m.menu]) + "  " + name
 	content := lipgloss.JoinVertical(lipgloss.Left, header, m.viewport.View())
@@ -174,8 +175,8 @@ func (m model) replyTargetView() string {
 	if m.replyTo == nil {
 		return ""
 	}
-	if m.replyTo.User.Username != "" {
-		return dim.Render("返信先: @" + m.replyTo.User.Username)
+	if handle := m.replyTo.User.handle(); handle != "" {
+		return dim.Render("返信先: @" + handle)
 	}
 	if m.replyTo.User.Name != "" {
 		return dim.Render("返信先: " + m.replyTo.User.Name)
@@ -275,11 +276,12 @@ func (m model) renderNote(index, width int) string {
 		prefix = "▸ "
 		textStyle = selectedStyle
 	}
+	username := note.User.handle()
 	name := note.User.Name
 	if name == "" {
-		name = note.User.Username
+		name = username
 	}
-	handle := "@" + note.User.Username
+	handle := "@" + username
 	when := note.CreatedAt
 	if t, err := time.Parse(time.RFC3339, note.CreatedAt); err == nil {
 		when = t.Local().Format("01/02 15:04")

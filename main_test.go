@@ -264,6 +264,18 @@ func TestMouseSelectsTimelineMenu(t *testing.T) {
 	}
 }
 
+func TestRenderNoteDisplaysMisskeyRemoteHandle(t *testing.T) {
+	var user User
+	if err := json.Unmarshal([]byte(`{"username":"user","host":"userweb"}`), &user); err != nil {
+		t.Fatal(err)
+	}
+	m := newModel(nil)
+	m.notes = []Note{{User: user}}
+	if rendered := m.renderNote(0, 80); !strings.Contains(rendered, "@user@userweb") {
+		t.Fatalf("remote Misskey handle was not rendered: %q", rendered)
+	}
+}
+
 func TestRenderNoteHighlightsHashtagsRenotesAndReactions(t *testing.T) {
 	m := newModel(nil)
 	myReaction := "👍"
