@@ -117,7 +117,11 @@ func (m model) mainView() string {
 	header := accent.Render(items[m.menu]) + "  " + name
 	content := lipgloss.JoinVertical(lipgloss.Left, header, m.viewport.View())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, menu, lipgloss.NewStyle().Width(1).Render("│"), content)
-	footer := lipgloss.NewStyle().BorderTop(true).Width(m.width).Render(m.composer.View() + "\n" + m.statusLine())
+	footerLines := []string{m.composer.View(), m.statusLine()}
+	if m.replyTo != nil {
+		footerLines = append([]string{m.replyTargetView()}, footerLines...)
+	}
+	footer := lipgloss.NewStyle().BorderTop(true).Width(m.width).Render(strings.Join(footerLines, "\n"))
 	return lipgloss.JoinVertical(lipgloss.Left, body, footer)
 }
 
@@ -126,6 +130,19 @@ func (m model) statusLine() string {
 		return errorStyle.Render(m.status + ": " + m.err.Error())
 	}
 	return dim.Render(m.status)
+}
+
+func (m model) replyTargetView() string {
+	if m.replyTo == nil {
+		return ""
+	}
+	if m.replyTo.User.Username != "" {
+		return dim.Render("返信先: @" + m.replyTo.User.Username)
+	}
+	if m.replyTo.User.Name != "" {
+		return dim.Render("返信先: " + m.replyTo.User.Name)
+	}
+	return dim.Render("返信先: " + m.replyTo.ID)
 }
 
 func styleHashtags(text string) string {

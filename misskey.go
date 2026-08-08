@@ -119,9 +119,13 @@ func timelinePath(kind int) string {
 	return []string{"/api/notes/timeline", "/api/notes/local-timeline", "/api/notes/global-timeline"}[min(kind, 2)]
 }
 
-func postCmd(host, token, text string) tea.Cmd {
+func postCmd(host, token, text, replyID string) tea.Cmd {
 	return func() tea.Msg {
-		err := apiCall(context.Background(), host+"/api/notes/create", token, map[string]any{"i": token, "text": text}, &struct{}{})
+		payload := map[string]any{"i": token, "text": text}
+		if replyID != "" {
+			payload["replyId"] = replyID
+		}
+		err := apiCall(context.Background(), host+"/api/notes/create", token, payload, &struct{}{})
 		return postResult{err: err}
 	}
 }
