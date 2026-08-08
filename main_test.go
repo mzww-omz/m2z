@@ -327,6 +327,48 @@ func TestLoadEmojiAssetsUsesReactionEmojiRefsWithoutCatalog(t *testing.T) {
 	}
 }
 
+func TestAvatarResultsBatchViewportRedraw(t *testing.T) {
+	const firstURL = "https://example.social/one.png"
+	const secondURL = "https://example.social/two.png"
+	m := newModel(nil)
+	m.screen = mainScreen
+	m.width, m.height = 80, 24
+	m.kitty = &kittyRenderer{
+		enabled: true,
+		images: map[string]*kittyImage{
+			firstURL:  {id: 1, placementID: 1, columns: 2, rows: 1, loading: true},
+			secondURL: {id: 2, placementID: 2, columns: 2, rows: 1, loading: true},
+		},
+	}
+	m.notes = []Note{{
+		Text:           ":one: :two:",
+		ReactionEmojis: EmojiRefs{"one": firstURL, "two": secondURL},
+	}}
+	m.resize()
+	before := m.viewport.View()
+	if !strings.Contains(before, "◌") {
+		t.Fatalf("expected loading placeholders: %q", before)
+	}
+
+	updated, _ := m.Update(avatarResult{url: firstURL})
+	got := updated.(model)
+	if !got.assetRedrawPending || got.viewport.View() != before {
+		t.Fatalf("first asset caused an immediate redraw: pending=%v", got.assetRedrawPending)
+	}
+
+	updated, _ = got.Update(avatarResult{url: secondURL})
+	got = updated.(model)
+	if !got.assetRedrawPending || got.viewport.View() != before {
+		t.Fatal("second asset caused a redraw before the batch flush")
+	}
+
+	updated, _ = got.Update(assetRedrawMsg{})
+	got = updated.(model)
+	if got.assetRedrawPending || strings.Contains(got.viewport.View(), "◌") {
+		t.Fatalf("batched redraw did not update both assets: pending=%v view=%q", got.assetRedrawPending, got.viewport.View())
+	}
+}
+
 func TestContentWarningHidesAndRevealsNote(t *testing.T) {
 	m := newModel(nil)
 	m.kitty = &kittyRenderer{enabled: false}
@@ -445,8 +487,13 @@ func TestAvatarResultRefreshesViewport(t *testing.T) {
 
 	updated, _ := m.Update(avatarResult{url: avatarURL, data: []byte("png")})
 	got := updated.(model)
+	if strings.Contains(got.viewport.View(), string(rune(0x10EEEE))) {
+		t.Fatal("viewport refreshed before the redraw batch was flushed")
+	}
+	updated, _ = got.Update(assetRedrawMsg{})
+	got = updated.(model)
 	if !strings.Contains(got.viewport.View(), string(rune(0x10EEEE))) {
-		t.Fatal("viewport was not refreshed after avatar load")
+		t.Fatal("viewport was not refreshed after the redraw batch")
 	}
 }
 
@@ -471,7 +518,14 @@ func TestAvatarUploadBypassesBufferedView(t *testing.T) {
 	if strings.Contains(updated.(model).View(), "\x1b_G") {
 		t.Fatal("avatar upload leaked into the buffered view")
 	}
-	cmd()
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("avatar upload was not batched with redraw: %T", msg)
+	}
+	for _, child := range batch {
+		child()
+	}
 	if !strings.Contains(output.String(), "a=T,U=1,f=100,i=42") {
 		t.Fatalf("avatar was not written directly: %q", output.String())
 	}

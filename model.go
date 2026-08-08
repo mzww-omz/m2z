@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -11,20 +12,25 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+const assetRedrawDelay = 16 * time.Millisecond
+
+type assetRedrawMsg struct{}
+
 type model struct {
 	screen screen
 	focus  focus
 	width  int
 	height int
 
-	setupInput    textinput.Model
-	authInput     textinput.Model
-	reactionInput textinput.Model
-	composer      textarea.Model
-	viewport      viewport.Model
-	kitty         *kittyRenderer
-	emojis        map[string]CustomEmoji
-	revealedCW    map[string]bool
+	setupInput         textinput.Model
+	authInput          textinput.Model
+	reactionInput      textinput.Model
+	composer           textarea.Model
+	viewport           viewport.Model
+	kitty              *kittyRenderer
+	assetRedrawPending bool
+	emojis             map[string]CustomEmoji
+	revealedCW         map[string]bool
 
 	host              string
 	session           string
@@ -200,10 +206,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, emojiCmd
 		}
 		return m, nil
+	case assetRedrawMsg:
+		m.assetRedrawPending = false
+		m.updateViewport()
+		return m, nil
 	case avatarResult:
 		uploadCmd := m.kitty.finish(msg)
-		m.updateViewport()
-		return m, uploadCmd
+		if m.assetRedrawPending {
+			return m, uploadCmd
+		}
+		m.assetRedrawPending = true
+		redrawCmd := tea.Tick(assetRedrawDelay, func(time.Time) tea.Msg {
+			return assetRedrawMsg{}
+		})
+		return m, batchCommands(uploadCmd, redrawCmd)
 	case timelineResult:
 		if msg.accountKey != "" && msg.accountKey != m.config.accountKey() {
 			return m, nil
