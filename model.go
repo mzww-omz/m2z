@@ -34,6 +34,7 @@ type model struct {
 	confirmReset      bool
 	notes             []Note
 	selected          int
+	replyTo           *Note
 	hasMore           bool
 	loadingOlder      bool
 	busy              bool
@@ -199,6 +200,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.composer.Reset()
+		m.composer.Placeholder = "投稿内容"
+		m.replyTo = nil
+		m.resize()
 		m.status, m.err = "投稿しました", nil
 		return m, timelineCmd(m.host, m.config.Token, m.menu)
 	case reactionResult:
@@ -329,6 +333,16 @@ func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if key == "esc" && m.replyTo != nil {
+		m.replyTo = nil
+		m.composer.Reset()
+		m.composer.Placeholder = "投稿内容"
+		m.resize()
+		m.focus = contentFocus
+		m.setFocus()
+		m.status = ""
+		return m, nil
+	}
 	if key == "s" && m.focus != composerFocus {
 		m.screen = settingsScreen
 		m.settingsIndex = 0
@@ -346,6 +360,10 @@ func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if key == "c" && m.focus != composerFocus {
+		m.replyTo = nil
+		m.composer.Reset()
+		m.composer.Placeholder = "投稿内容"
+		m.resize()
 		m.focus = composerFocus
 		m.setFocus()
 		return m, nil
@@ -367,6 +385,17 @@ func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = "このノートをリノートしますか？ y/Enter: 実行 n/Esc: キャンセル"
 		return m, nil
 	}
+	if key == "R" && m.focus != composerFocus && !m.busy && m.selected >= 0 && m.selected < len(m.notes) {
+		target := m.notes[m.selected]
+		m.replyTo = &target
+		m.composer.Reset()
+		m.composer.Placeholder = "返信内容"
+		m.resize()
+		m.focus = composerFocus
+		m.setFocus()
+		m.status, m.err = "返信内容を入力してください", nil
+		return m, nil
+	}
 	if key == "r" && m.focus != composerFocus && !m.busy {
 		m.busy, m.status, m.err = true, "更新中…", nil
 		return m, timelineCmd(m.host, m.config.Token, m.menu)
@@ -374,7 +403,11 @@ func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.focus == composerFocus {
 		if key == "enter" && !m.busy && strings.TrimSpace(m.composer.Value()) != "" {
 			m.busy, m.status, m.err = true, "投稿中…", nil
-			return m, postCmd(m.host, m.config.Token, m.composer.Value())
+			replyID := ""
+			if m.replyTo != nil {
+				replyID = m.replyTo.ID
+			}
+			return m, postCmd(m.host, m.config.Token, m.composer.Value(), replyID)
 		}
 		var cmd tea.Cmd
 		m.composer, cmd = m.composer.Update(msg)
@@ -477,6 +510,9 @@ func (m *model) resize() {
 	}
 	contentWidth := max(1, m.width-menuWidth-1)
 	contentHeight := max(1, m.height-7)
+	if m.replyTo != nil {
+		contentHeight = max(1, contentHeight-1)
+	}
 	m.viewport.Width, m.viewport.Height = contentWidth, contentHeight
 	m.composer.SetWidth(max(1, m.width-4))
 	m.composer.SetHeight(composerHeight)

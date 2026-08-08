@@ -122,8 +122,25 @@ func (m model) mainView() string {
 	if m.reactionMode {
 		composer = m.reactionInput.View()
 	}
-	footer := lipgloss.NewStyle().BorderTop(true).Width(m.width).Render(composer + "\n" + m.statusLine())
+	footerLines := []string{composer, m.statusLine()}
+	if m.replyTo != nil {
+		footerLines = append([]string{m.replyTargetView()}, footerLines...)
+	}
+	footer := lipgloss.NewStyle().BorderTop(true).Width(m.width).Render(strings.Join(footerLines, "\n"))
 	return lipgloss.JoinVertical(lipgloss.Left, body, footer)
+}
+
+func (m model) replyTargetView() string {
+	if m.replyTo == nil {
+		return ""
+	}
+	if m.replyTo.User.Username != "" {
+		return dim.Render("返信先: @" + m.replyTo.User.Username)
+	}
+	if m.replyTo.User.Name != "" {
+		return dim.Render("返信先: " + m.replyTo.User.Name)
+	}
+	return dim.Render("返信先: " + m.replyTo.ID)
 }
 
 func (m model) statusLine() string {

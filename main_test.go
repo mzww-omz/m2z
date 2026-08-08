@@ -156,6 +156,74 @@ func TestOlderTimelineAppendsNotes(t *testing.T) {
 	}
 }
 
+func TestPostCmdPayload(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		replyID string
+		wantID  bool
+	}{
+		{name: "reply", replyID: "note-id", wantID: true},
+		{name: "post", wantID: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var payload map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Errorf("decode request: %v", err)
+				}
+				_, _ = w.Write([]byte(`{}`))
+			}))
+			defer server.Close()
+
+			result := postCmd(server.URL, "token", "本文", tc.replyID)().(postResult)
+			if result.err != nil {
+				t.Fatal(result.err)
+			}
+			_, hasReplyID := payload["replyId"]
+			if hasReplyID != tc.wantID {
+				t.Fatalf("replyId presence = %v, want %v: %#v", hasReplyID, tc.wantID, payload)
+			}
+			if tc.wantID && payload["replyId"] != tc.replyID {
+				t.Fatalf("replyId = %v, want %q", payload["replyId"], tc.replyID)
+			}
+		})
+	}
+}
+
+func TestReplyKeySelectsAndCancelsNote(t *testing.T) {
+	m := newModel(nil)
+	m.screen = mainScreen
+	m.focus = contentFocus
+	m.notes = []Note{{ID: "note-id", User: User{Username: "alice"}}}
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	got := updated.(model)
+	if got.replyTo == nil || got.replyTo.ID != "note-id" || got.focus != composerFocus {
+		t.Fatalf("reply mode was not entered: replyTo=%+v focus=%v", got.replyTo, got.focus)
+	}
+
+	updated, _ = got.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	got = updated.(model)
+	if got.replyTo != nil || got.focus != contentFocus {
+		t.Fatalf("reply mode was not cancelled: replyTo=%+v focus=%v", got.replyTo, got.focus)
+	}
+}
+
+func TestPostResultClearsReplyMode(t *testing.T) {
+	m := newModel(&Config{Host: "https://misskey.example", Token: "token"})
+	m.screen = mainScreen
+	m.width, m.height = 80, 24
+	m.replyTo = &Note{ID: "note-id"}
+	m.composer.SetValue("返信")
+	m.busy = true
+
+	updated, cmd := m.Update(postResult{})
+	got := updated.(model)
+	if got.replyTo != nil || got.composer.Value() != "" || got.composer.Placeholder != "投稿内容" || cmd == nil {
+		t.Fatalf("reply mode was not cleared after posting: replyTo=%+v text=%q placeholder=%q cmd=%v", got.replyTo, got.composer.Value(), got.composer.Placeholder, cmd != nil)
+	}
+}
+
 func TestMouseSelectsTimelineMenu(t *testing.T) {
 	m := newModel(&Config{Host: "https://misskey.example", Token: "token"})
 	m.screen = mainScreen
