@@ -75,7 +75,7 @@ func newModel(cfg *Config) model {
 
 func (m model) Init() tea.Cmd {
 	if m.screen == mainScreen {
-		return batchCommands(timelineCmd(m.host, m.config.Token, m.menu), emojiCatalogCmd(m.host))
+		return tea.Sequence(m.kitty.clearCmd(), batchCommands(timelineCmd(m.host, m.config.Token, m.menu), emojiCatalogCmd(m.host)))
 	}
 	return nil
 }
@@ -115,7 +115,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.screen, m.focus, m.status, m.err = mainScreen, contentFocus, "認証しました。タイムラインを読み込み中…", nil
-		return m, batchCommands(timelineCmd(m.host, m.config.Token, m.menu), emojiCatalogCmd(m.host))
+		return m, tea.Sequence(m.kitty.clearCmd(), batchCommands(timelineCmd(m.host, m.config.Token, m.menu), emojiCatalogCmd(m.host)))
 	case emojiCatalogResult:
 		if msg.err == nil {
 			m.emojis = buildEmojiCatalog(msg.emojis)
@@ -125,9 +125,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case avatarResult:
-		m.kitty.finish(msg)
+		uploadCmd := m.kitty.finish(msg)
 		m.updateViewport()
-		return m, nil
+		return m, uploadCmd
 	case timelineResult:
 		m.busy = false
 		if msg.err != nil {

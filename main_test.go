@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -122,6 +123,33 @@ func TestAvatarResultRefreshesViewport(t *testing.T) {
 	got := updated.(model)
 	if !strings.Contains(got.viewport.View(), string(rune(0x10EEEE))) {
 		t.Fatal("viewport was not refreshed after avatar load")
+	}
+}
+
+func TestAvatarUploadBypassesBufferedView(t *testing.T) {
+	const avatarURL = "https://example/avatar"
+	var output bytes.Buffer
+	m := newModel(nil)
+	m.screen = mainScreen
+	m.width, m.height = 80, 24
+	m.notes = []Note{{ID: "1", User: User{Name: "user", Username: "user", AvatarURL: avatarURL}}}
+	m.kitty = &kittyRenderer{
+		enabled: true,
+		output:  &output,
+		images:  map[string]*kittyImage{avatarURL: {id: 42, placementID: 42, columns: kittyColumns, rows: kittyRows, loading: true}},
+	}
+	m.resize()
+
+	updated, cmd := m.Update(avatarResult{url: avatarURL, data: []byte("png")})
+	if cmd == nil {
+		t.Fatal("avatar upload command is missing")
+	}
+	if strings.Contains(updated.(model).View(), "\x1b_G") {
+		t.Fatal("avatar upload leaked into the buffered view")
+	}
+	cmd()
+	if !strings.Contains(output.String(), "a=T,U=1,f=100,i=42") {
+		t.Fatalf("avatar was not written directly: %q", output.String())
 	}
 }
 

@@ -18,19 +18,15 @@ var (
 )
 
 func (m model) View() string {
-	var uploads string
-	if m.kitty != nil {
-		uploads = m.kitty.takeUploads()
-	}
 	switch m.screen {
 	case setupScreen:
-		return uploads + m.setupView()
+		return m.setupView()
 	case authScreen:
-		return uploads + m.authView()
+		return m.authView()
 	case settingsScreen:
-		return uploads + m.settingsView()
+		return m.settingsView()
 	default:
-		return uploads + m.mainView()
+		return m.mainView()
 	}
 }
 

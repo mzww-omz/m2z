@@ -13,8 +13,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -51,26 +51,34 @@ type kittyImage struct {
 	rows        int
 	loading     bool
 	ready       bool
-	uploaded    bool
 	autoSize    bool
-	data        []byte
 }
 
 type kittyRenderer struct {
-	enabled      bool
-	nextID       uint32
-	images       map[string]*kittyImage
-	clearPending bool
+	enabled bool
+	nextID  uint32
+	images  map[string]*kittyImage
+	output  io.Writer
+}
+
+type synchronizedOutput struct {
+	*os.File
+	mu sync.Mutex
+}
+
+func (w *synchronizedOutput) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.File.Write(data)
 }
 
 func newKittyRenderer() *kittyRenderer {
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv("M2Z_GRAPHICS")))
 	enabled := mode == "kitty" || (mode != "off" && kittyTerminal())
 	return &kittyRenderer{
-		enabled:      enabled,
-		nextID:       1,
-		images:       make(map[string]*kittyImage),
-		clearPending: enabled,
+		enabled: enabled,
+		nextID:  1,
+		images:  make(map[string]*kittyImage),
 	}
 }
 
@@ -139,7 +147,7 @@ func (m *model) resetImageCache() tea.Cmd {
 		return nil
 	}
 	m.kitty.reset()
-	return batchCommands(m.loadAvatars(m.notes), m.loadEmojiAssets(m.notes))
+	return tea.Sequence(m.kitty.clearCmd(), batchCommands(m.loadAvatars(m.notes), m.loadEmojiAssets(m.notes)))
 }
 
 func (k *kittyRenderer) reset() {
@@ -148,27 +156,26 @@ func (k *kittyRenderer) reset() {
 	}
 	k.images = make(map[string]*kittyImage)
 	k.nextID = 1
-	k.clearPending = true
 }
 
-func (k *kittyRenderer) finish(msg avatarResult) {
+func (k *kittyRenderer) finish(msg avatarResult) tea.Cmd {
 	if k == nil {
-		return
+		return nil
 	}
 	img, ok := k.images[msg.url]
 	if !ok {
-		return
+		return nil
 	}
 	img.loading = false
 	if msg.err != nil {
 		delete(k.images, msg.url)
-		return
+		return nil
 	}
 	if img.autoSize && msg.width > 0 && msg.height > 0 {
 		img.columns, img.rows = emojiDimensions(CustomEmoji{Width: msg.width, Height: msg.height})
 	}
-	img.data = msg.data
 	img.ready = true
+	return k.writeCmd(kittyUploadMode(msg.data, img.id, img.columns, img.rows, img.autoSize, img.placementID))
 }
 
 func (m model) avatarPlaceholder(avatarURL string) string {
@@ -207,28 +214,18 @@ func kittyMissingPlaceholder() string {
 	return line + "\n" + strings.Repeat(" ", kittyColumns)
 }
 
-func (k *kittyRenderer) takeUploads() string {
-	if k == nil || !k.enabled {
-		return ""
+func (k *kittyRenderer) clearCmd() tea.Cmd {
+	return k.writeCmd("\x1b_Ga=d,d=A,q=2;\x1b\\")
+}
+
+func (k *kittyRenderer) writeCmd(sequence string) tea.Cmd {
+	if k == nil || !k.enabled || k.output == nil {
+		return nil
 	}
-	urls := make([]string, 0, len(k.images))
-	for avatarURL, img := range k.images {
-		if img.ready && !img.uploaded {
-			urls = append(urls, avatarURL)
-		}
+	return func() tea.Msg {
+		_, _ = io.WriteString(k.output, sequence)
+		return nil
 	}
-	sort.Strings(urls)
-	var out strings.Builder
-	if k.clearPending {
-		out.WriteString("\x1b_Ga=d,d=A,q=2;\x1b\\")
-		k.clearPending = false
-	}
-	for _, avatarURL := range urls {
-		img := k.images[avatarURL]
-		out.WriteString(kittyUploadMode(img.data, img.id, img.columns, img.rows, img.autoSize, img.placementID))
-		img.uploaded = true
-	}
-	return out.String()
 }
 
 func avatarCmd(rawURL string) tea.Cmd {

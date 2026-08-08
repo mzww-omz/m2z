@@ -39,8 +39,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	output := &synchronizedOutput{File: os.Stdout}
 	m := newModel(cfg)
-	if _, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run(); err != nil {
+	m.kitty.output = output
+	if _, err := tea.NewProgram(m, tea.WithOutput(output), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
