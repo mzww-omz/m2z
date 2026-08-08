@@ -10,7 +10,7 @@ import (
 
 const (
 	appName      = "m2z"
-	permission   = "read:account,write:notes"
+	permission   = "read:account,write:notes,write:reactions"
 	requestLimit = 30
 	menuWidth    = 18
 )

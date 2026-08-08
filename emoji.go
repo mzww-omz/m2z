@@ -124,22 +124,32 @@ func (m *model) loadEmojiAssets(notes []Note) tea.Cmd {
 	}
 	var cmds []tea.Cmd
 	seen := make(map[string]struct{})
-	for _, note := range notes {
-		for _, match := range customEmojiPattern.FindAllStringSubmatch(note.Text, -1) {
-			if len(match) != 2 {
-				continue
-			}
-			emoji, ok := m.emojis[match[1]]
-			if !ok || emoji.URL == "" {
-				continue
-			}
-			if _, ok := seen[emoji.URL]; ok {
-				continue
-			}
-			seen[emoji.URL] = struct{}{}
-			columns, rows := emojiDimensions(emoji)
-			if cmd := m.kitty.prepareEmojiAsset(emoji.URL, columns, rows); cmd != nil {
-				cmds = append(cmds, cmd)
+	for _, rawNote := range notes {
+		note := actionNote(rawNote)
+		texts := []string{note.Text}
+		for reaction := range note.Reactions {
+			texts = append(texts, reaction)
+		}
+		if note.MyReaction != nil {
+			texts = append(texts, *note.MyReaction)
+		}
+		for _, text := range texts {
+			for _, match := range customEmojiPattern.FindAllStringSubmatch(text, -1) {
+				if len(match) != 2 {
+					continue
+				}
+				emoji, ok := m.emojis[match[1]]
+				if !ok || emoji.URL == "" {
+					continue
+				}
+				if _, ok := seen[emoji.URL]; ok {
+					continue
+				}
+				seen[emoji.URL] = struct{}{}
+				columns, rows := emojiDimensions(emoji)
+				if cmd := m.kitty.prepareEmojiAsset(emoji.URL, columns, rows); cmd != nil {
+					cmds = append(cmds, cmd)
+				}
 			}
 		}
 	}

@@ -42,6 +42,16 @@ func TestStreamingURL(t *testing.T) {
 	}
 }
 
+func TestNoteReactionFields(t *testing.T) {
+	var note Note
+	if err := json.Unmarshal([]byte(`{"reactions":{"👍":2},"myReaction":"👍"}`), &note); err != nil {
+		t.Fatal(err)
+	}
+	if note.Reactions["👍"] != 2 || note.MyReaction == nil || *note.MyReaction != "👍" {
+		t.Fatalf("reaction fields not decoded: %+v", note)
+	}
+}
+
 func TestNoteEmojiRefsAcceptObjectAndArray(t *testing.T) {
 	var object Note
 	if err := json.Unmarshal([]byte(`{"emojis":{"wide":"https://example/wide.png"}}`), &object); err != nil {
@@ -57,6 +67,76 @@ func TestNoteEmojiRefsAcceptObjectAndArray(t *testing.T) {
 	}
 	if _, ok := array.Emojis["smile"]; !ok {
 		t.Fatalf("array emoji refs not decoded: %#v", array.Emojis)
+	}
+}
+
+func TestReactionAndRenoteCommandsUseTargetNote(t *testing.T) {
+	var paths []string
+	var payloads []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Error(err)
+		}
+		paths = append(paths, r.URL.Path)
+		payloads = append(payloads, payload)
+		_, _ = w.Write([]byte(`{"createdNote":{}}`))
+	}))
+	defer server.Close()
+
+	myReaction := "👍"
+	note := Note{ID: "outer", Renote: &Note{ID: "inner", MyReaction: &myReaction}}
+	if result := reactionCmd(server.URL, "token", note, "👍")().(reactionResult); result.err != nil {
+		t.Fatal(result.err)
+	}
+	if result := reactionCmd(server.URL, "token", note, "🎉")().(reactionResult); result.err != nil {
+		t.Fatal(result.err)
+	}
+	if result := renoteCmd(server.URL, "token", note)().(renoteResult); result.err != nil {
+		t.Fatal(result.err)
+	}
+
+	if len(paths) != 3 || paths[0] != "/api/notes/reactions/delete" || paths[1] != "/api/notes/reactions/create" || paths[2] != "/api/notes/create" {
+		t.Fatalf("unexpected API paths: %v", paths)
+	}
+	for i, payload := range payloads {
+		if payload["noteId"] != "inner" && i < 2 {
+			t.Fatalf("action %d targeted the wrong note: %#v", i, payload)
+		}
+	}
+	if payloads[2]["renoteId"] != "inner" {
+		t.Fatalf("renote targeted the wrong note: %#v", payloads[2])
+	}
+}
+
+func TestReactionModeCanBeCancelled(t *testing.T) {
+	m := newModel(&Config{Host: "https://misskey.example", Token: "token"})
+	m.screen = mainScreen
+	m.focus = contentFocus
+	m.notes = []Note{{ID: "1"}}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	if cmd != nil || !updated.(model).reactionMode {
+		t.Fatal("reaction mode did not open")
+	}
+	updated, cmd = updated.(model).Update(tea.KeyMsg{Type: tea.KeyEsc})
+	got := updated.(model)
+	if cmd != nil || got.reactionMode || got.reactionInput.Value() != "" {
+		t.Fatalf("reaction mode did not cancel: %+v", got)
+	}
+}
+
+func TestTimelineRefreshPreservesSelectedNote(t *testing.T) {
+	m := newModel(nil)
+	m.screen = mainScreen
+	m.notes = []Note{{ID: "old"}, {ID: "selected"}}
+	m.selected = 1
+	m.refreshSelectedID = "selected"
+
+	updated, _ := m.Update(timelineResult{notes: []Note{{ID: "new"}, {ID: "selected"}}})
+	got := updated.(model)
+	if got.selected != 1 || got.notes[got.selected].ID != "selected" {
+		t.Fatalf("selected note was not preserved: selected=%d notes=%+v", got.selected, got.notes)
 	}
 }
 
@@ -161,13 +241,16 @@ func TestMouseSelectsTimelineMenu(t *testing.T) {
 	}
 }
 
-func TestRenderNoteHighlightsHashtagsAndRenote(t *testing.T) {
+func TestRenderNoteHighlightsHashtagsRenotesAndReactions(t *testing.T) {
 	m := newModel(nil)
+	myReaction := "👍"
 	m.notes = []Note{{
 		ID:   "1",
 		Text: "本文",
 		Renote: &Note{
-			Text: "再投稿 #タグ",
+			Text:       "再投稿 #タグ",
+			Reactions:  map[string]int{"👍": 2},
+			MyReaction: &myReaction,
 		},
 	}}
 
@@ -175,6 +258,8 @@ func TestRenderNoteHighlightsHashtagsAndRenote(t *testing.T) {
 	for _, want := range []string{
 		renoteStyle.Render("↻ リノート"),
 		hashtagStyle.Render("#タグ"),
+		"★👍",
+		"2",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered note does not contain styled %q: %q", want, rendered)

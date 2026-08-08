@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -117,11 +118,19 @@ func (m model) mainView() string {
 	header := accent.Render(items[m.menu]) + "  " + name
 	content := lipgloss.JoinVertical(lipgloss.Left, header, m.viewport.View())
 	body := lipgloss.JoinHorizontal(lipgloss.Top, menu, lipgloss.NewStyle().Width(1).Render("│"), content)
+<<<<<<< HEAD
 	footerLines := []string{m.composer.View(), m.statusLine()}
 	if m.replyTo != nil {
 		footerLines = append([]string{m.replyTargetView()}, footerLines...)
 	}
 	footer := lipgloss.NewStyle().BorderTop(true).Width(m.width).Render(strings.Join(footerLines, "\n"))
+=======
+	composer := m.composer.View()
+	if m.reactionMode {
+		composer = m.reactionInput.View()
+	}
+	footer := lipgloss.NewStyle().BorderTop(true).Width(m.width).Render(composer + "\n" + m.statusLine())
+>>>>>>> agent/reaction
 	return lipgloss.JoinVertical(lipgloss.Left, body, footer)
 }
 
@@ -169,6 +178,7 @@ func (m model) renderNotes(width int) string {
 
 func (m model) renderNote(index, width int) string {
 	note := m.notes[index]
+	content := actionNote(note)
 	prefix := "  "
 	textStyle := lipgloss.NewStyle()
 	if index == m.selected {
@@ -184,12 +194,15 @@ func (m model) renderNote(index, width int) string {
 	if t, err := time.Parse(time.RFC3339, note.CreatedAt); err == nil {
 		when = t.Local().Format("01/02 15:04")
 	}
-	text := strings.TrimSpace(note.Text)
+	text := strings.TrimSpace(content.Text)
 	if text == "" {
 		text = "[本文なし]"
 	}
 	if note.Renote != nil {
-		text = renoteStyle.Render("↻ リノート") + "\n" + strings.TrimSpace(note.Renote.Text)
+		text = renoteStyle.Render("↻ リノート") + "\n" + text
+	}
+	if reactions := reactionSummary(content); reactions != "" {
+		text += "\n" + reactions
 	}
 	text = styleHashtags(text)
 	text, emojiMarkers := m.layoutEmojiText(text)
@@ -206,6 +219,40 @@ func (m model) renderNote(index, width int) string {
 	block := lipgloss.JoinHorizontal(lipgloss.Top, prefix, avatar, " ", details)
 	rendered := lipgloss.NewStyle().Padding(0, 1).Render(block)
 	return replaceEmojiMarkers(rendered, emojiMarkers)
+}
+
+func reactionSummary(note Note) string {
+	keys := make([]string, 0, len(note.Reactions)+1)
+	for reaction := range note.Reactions {
+		if reaction != "" {
+			keys = append(keys, reaction)
+		}
+	}
+	if note.MyReaction != nil && *note.MyReaction != "" {
+		found := false
+		for _, reaction := range keys {
+			if reaction == *note.MyReaction {
+				found = true
+				break
+			}
+		}
+		if !found {
+			keys = append(keys, *note.MyReaction)
+		}
+	}
+	if len(keys) == 0 {
+		return ""
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, reaction := range keys {
+		label := reaction
+		if note.MyReaction != nil && *note.MyReaction == reaction {
+			label = accent.Render("★" + reaction)
+		}
+		parts = append(parts, fmt.Sprintf("%s %d", label, note.Reactions[reaction]))
+	}
+	return dim.Render(strings.Join(parts, "  "))
 }
 
 func (m model) selectedLineOffset(width int) int {
