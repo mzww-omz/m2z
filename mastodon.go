@@ -61,6 +61,7 @@ type mastodonMediaAttachment struct {
 	URL         string `json:"url"`
 	PreviewURL  string `json:"preview_url"`
 	Description string `json:"description"`
+	Sensitive   bool   `json:"sensitive"`
 }
 
 type mastodonStatus struct {
@@ -225,15 +226,13 @@ func mastodonEmojiCatalogCmd(cfg Config) tea.Cmd {
 
 func mastodonStatusToNote(status mastodonStatus) Note {
 	note := Note{
-		ID:           status.ID,
-		CreatedAt:    status.CreatedAt,
-		Text:         mastodonHTMLToText(status.Content),
-		User:         mastodonAccountToUser(status.Account),
-		Attachments:  mastodonAttachmentsToAttachments(status.MediaAttachments),
-		ReshareLabel: "ブースト",
-	}
-	if status.SpoilerText != "" {
-		note.Text = "CW: " + html.UnescapeString(status.SpoilerText) + "\n" + note.Text
+		ID:             status.ID,
+		CreatedAt:      status.CreatedAt,
+		Text:           mastodonHTMLToText(status.Content),
+		ContentWarning: html.UnescapeString(status.SpoilerText),
+		User:           mastodonAccountToUser(status.Account),
+		Attachments:    mastodonAttachmentsToAttachments(status.MediaAttachments),
+		ReshareLabel:   "ブースト",
 	}
 	if status.Reblog != nil {
 		reblog := mastodonStatusToNote(*status.Reblog)
@@ -253,6 +252,7 @@ func mastodonAttachmentsToAttachments(source []mastodonMediaAttachment) []Attach
 			PreviewURL:  attachment.PreviewURL,
 			Type:        attachment.Type,
 			Description: attachment.Description,
+			Sensitive:   attachment.Sensitive,
 		})
 	}
 	return attachments

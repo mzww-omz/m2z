@@ -126,6 +126,9 @@ func (m *model) loadEmojiAssets(notes []Note) tea.Cmd {
 	var cmds []tea.Cmd
 	seen := make(map[string]struct{})
 	for _, rawNote := range notes {
+		if contentWarning(rawNote) != "" && !m.revealedCW[rawNote.ID] {
+			continue
+		}
 		note := actionNote(rawNote)
 		texts := []string{note.Text}
 		for reaction := range note.Reactions {

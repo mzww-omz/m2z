@@ -24,6 +24,7 @@ type model struct {
 	viewport      viewport.Model
 	kitty         *kittyRenderer
 	emojis        map[string]CustomEmoji
+	revealedCW    map[string]bool
 
 	host              string
 	session           string
@@ -86,6 +87,7 @@ func newModel(cfg *Config) model {
 		viewport:      viewport.New(1, 1),
 		kitty:         newKittyRenderer(),
 		emojis:        make(map[string]CustomEmoji),
+		revealedCW:    make(map[string]bool),
 		status:        "サーバーURLを入力してください",
 	}
 	if cfg != nil && cfg.Host != "" && cfg.Token != "" {
@@ -181,6 +183,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.hasMore = false
 			m.loadingOlder = false
 			m.emojis = make(map[string]CustomEmoji)
+			m.revealedCW = make(map[string]bool)
 		}
 		m.addingAccount = false
 		m.screen, m.focus, m.status, m.err = mainScreen, contentFocus, "認証しました。タイムラインを読み込み中…", nil
@@ -430,6 +433,23 @@ func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = ""
 		return m, nil
 	}
+	if key == "w" && m.focus != composerFocus && !m.busy && m.selected >= 0 && m.selected < len(m.notes) {
+		note := m.notes[m.selected]
+		if contentWarning(note) == "" && !hasSensitiveAttachment(actionNote(note)) {
+			return m, nil
+		}
+		if m.revealedCW == nil {
+			m.revealedCW = make(map[string]bool)
+		}
+		m.revealedCW[note.ID] = !m.revealedCW[note.ID]
+		m.updateViewport()
+		if m.revealedCW[note.ID] {
+			m.status, m.err = "CWを表示しました", nil
+			return m, batchCommands(m.loadAvatars([]Note{note}), m.loadEmojiAssets([]Note{note}))
+		}
+		m.status, m.err = "CWを非表示にしました", nil
+		return m, nil
+	}
 	if key == "s" && m.focus != composerFocus {
 		m.config.rememberCurrentAccount()
 		m.screen = settingsScreen
@@ -624,6 +644,7 @@ func (m model) switchAccount(index int) (tea.Model, tea.Cmd) {
 	m.loadingOlder = false
 	m.refreshSelectedID = ""
 	m.emojis = make(map[string]CustomEmoji)
+	m.revealedCW = make(map[string]bool)
 	m.updateViewport()
 	if m.config.StatusMaxCharacters > 0 {
 		m.composer.CharLimit = m.config.StatusMaxCharacters

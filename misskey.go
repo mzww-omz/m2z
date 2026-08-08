@@ -65,16 +65,17 @@ func (a Attachment) isImage() bool {
 }
 
 type Note struct {
-	ID           string         `json:"id"`
-	CreatedAt    string         `json:"createdAt"`
-	Text         string         `json:"text"`
-	Emojis       EmojiRefs      `json:"emojis"`
-	User         User           `json:"user"`
-	Attachments  []Attachment   `json:"files"`
-	Renote       *Note          `json:"renote"`
-	ReshareLabel string         `json:"-"`
-	Reactions    map[string]int `json:"reactions"`
-	MyReaction   *string        `json:"myReaction"`
+	ID             string         `json:"id"`
+	CreatedAt      string         `json:"createdAt"`
+	Text           string         `json:"text"`
+	ContentWarning string         `json:"cw"`
+	Emojis         EmojiRefs      `json:"emojis"`
+	User           User           `json:"user"`
+	Attachments    []Attachment   `json:"files"`
+	Renote         *Note          `json:"renote"`
+	ReshareLabel   string         `json:"-"`
+	Reactions      map[string]int `json:"reactions"`
+	MyReaction     *string        `json:"myReaction"`
 }
 
 type Meta struct {
@@ -209,6 +210,25 @@ func renoteCmd(host, token string, note Note) tea.Cmd {
 		}, &result)
 		return renoteResult{err: err}
 	}
+}
+
+func contentWarning(note Note) string {
+	if warning := strings.TrimSpace(note.ContentWarning); warning != "" {
+		return warning
+	}
+	if note.Renote != nil {
+		return strings.TrimSpace(note.Renote.ContentWarning)
+	}
+	return ""
+}
+
+func hasSensitiveAttachment(note Note) bool {
+	for _, attachment := range note.Attachments {
+		if attachment.Sensitive && attachment.isImage() {
+			return true
+		}
+	}
+	return false
 }
 
 func actionNote(note Note) Note {

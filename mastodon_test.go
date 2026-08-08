@@ -45,9 +45,10 @@ func TestMastodonHTMLToText(t *testing.T) {
 
 func TestMastodonStatusToNote(t *testing.T) {
 	status := mastodonStatus{
-		ID:        "2",
-		CreatedAt: "2024-01-02T03:04:05.000Z",
-		Content:   "<p>boosted</p>",
+		ID:          "2",
+		CreatedAt:   "2024-01-02T03:04:05.000Z",
+		Content:     "<p>boosted</p>",
+		SpoilerText: "spoiler",
 		Account: mastodonAccount{
 			ID:           "account",
 			Acct:         "user@example.social",
@@ -55,7 +56,7 @@ func TestMastodonStatusToNote(t *testing.T) {
 			AvatarStatic: "https://example.social/avatar.png",
 		},
 		MediaAttachments: []mastodonMediaAttachment{
-			{Type: "image", URL: "https://example.social/image.png", PreviewURL: "https://example.social/preview.png", Description: "画像"},
+			{Type: "image", URL: "https://example.social/image.png", PreviewURL: "https://example.social/preview.png", Description: "画像", Sensitive: true},
 			{Type: "video", URL: "https://example.social/video.mp4"},
 		},
 		Reblog: &mastodonStatus{
@@ -65,13 +66,13 @@ func TestMastodonStatusToNote(t *testing.T) {
 		},
 	}
 	note := mastodonStatusToNote(status)
-	if note.ID != "2" || note.User.Username != "user@example.social" || note.ReshareLabel != "ブースト" {
+	if note.ID != "2" || note.User.Username != "user@example.social" || note.ReshareLabel != "ブースト" || note.ContentWarning != "spoiler" || note.Text != "boosted" {
 		t.Fatalf("status was not mapped: %+v", note)
 	}
 	if note.Renote == nil || note.Renote.Text != "original" {
 		t.Fatalf("reblog was not mapped: %+v", note.Renote)
 	}
-	if len(note.Attachments) != 1 || note.Attachments[0].imageURL() != "https://example.social/preview.png" || note.Attachments[0].Description != "画像" {
+	if len(note.Attachments) != 1 || note.Attachments[0].imageURL() != "https://example.social/preview.png" || note.Attachments[0].Description != "画像" || !note.Attachments[0].Sensitive {
 		t.Fatalf("media attachments were not mapped: %+v", note.Attachments)
 	}
 }

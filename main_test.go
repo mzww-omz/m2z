@@ -83,6 +83,16 @@ func TestNoteAttachmentsDecodeMisskeyFiles(t *testing.T) {
 	}
 }
 
+func TestNoteContentWarningDecodes(t *testing.T) {
+	var note Note
+	if err := json.Unmarshal([]byte(`{"id":"1","cw":"spoiler","text":"secret"}`), &note); err != nil {
+		t.Fatal(err)
+	}
+	if contentWarning(note) != "spoiler" {
+		t.Fatalf("content warning was not decoded: %q", note.ContentWarning)
+	}
+}
+
 func TestReactionAndRenoteCommandsUseTargetNote(t *testing.T) {
 	var paths []string
 	var payloads []map[string]any
@@ -280,6 +290,46 @@ func TestRenderNoteHighlightsHashtagsRenotesAndReactions(t *testing.T) {
 	}
 }
 
+func TestContentWarningHidesAndRevealsNote(t *testing.T) {
+	m := newModel(nil)
+	m.kitty = &kittyRenderer{enabled: false}
+	m.notes = []Note{{
+		ID:             "1",
+		Text:           "secret",
+		ContentWarning: "spoiler",
+		Attachments:    []Attachment{{URL: "https://example/image.png", Type: "image/png"}},
+	}}
+
+	hidden := m.renderNote(0, 80)
+	if !strings.Contains(hidden, "CW: spoiler") || !strings.Contains(hidden, "[非表示のコンテンツ]") || strings.Contains(hidden, "secret") || strings.Contains(hidden, "image.png") {
+		t.Fatalf("CW content was not hidden: %q", hidden)
+	}
+
+	m.revealedCW["1"] = true
+	visible := m.renderNote(0, 80)
+	if !strings.Contains(visible, "secret") || !strings.Contains(visible, "image.png") {
+		t.Fatalf("CW content was not revealed: %q", visible)
+	}
+}
+
+func TestCWKeyTogglesSelectedNote(t *testing.T) {
+	m := newModel(nil)
+	m.screen = mainScreen
+	m.focus = contentFocus
+	m.notes = []Note{{ID: "1", ContentWarning: "spoiler"}}
+
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'w'}})
+	got := updated.(model)
+	if cmd != nil || !got.revealedCW["1"] {
+		t.Fatalf("CW was not revealed: revealed=%v cmd=%v", got.revealedCW["1"], cmd != nil)
+	}
+	updated, cmd = got.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'w'}})
+	got = updated.(model)
+	if cmd != nil || got.revealedCW["1"] {
+		t.Fatalf("CW was not hidden again: revealed=%v cmd=%v", got.revealedCW["1"], cmd != nil)
+	}
+}
+
 func TestRenderNoteShowsImageAttachmentFallback(t *testing.T) {
 	m := newModel(nil)
 	m.kitty = &kittyRenderer{enabled: false}
@@ -300,6 +350,18 @@ func TestRenderNoteShowsImageAttachmentFallback(t *testing.T) {
 	}
 	if strings.Contains(rendered, "video.mp4") {
 		t.Fatalf("non-image attachment was rendered: %q", rendered)
+	}
+}
+
+func TestKittySkipsHiddenCWImages(t *testing.T) {
+	const imageURL = "https://example/image.png"
+	k := &kittyRenderer{enabled: true, images: make(map[string]*kittyImage)}
+	note := Note{ID: "1", ContentWarning: "spoiler", Attachments: []Attachment{{URL: imageURL, Type: "image/png"}}}
+	if cmds := k.prepare([]Note{note}, map[string]bool{}); len(cmds) != 0 {
+		t.Fatalf("hidden CW image was prepared: %d commands", len(cmds))
+	}
+	if cmds := k.prepare([]Note{note}, map[string]bool{"1": true}); len(cmds) != 1 {
+		t.Fatalf("revealed CW image was not prepared: %d commands", len(cmds))
 	}
 }
 

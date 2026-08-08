@@ -95,17 +95,26 @@ func kittyTerminal() bool {
 	return strings.Contains(term, "kitty") || strings.Contains(term, "ghostty") || program == "ghostty" || program == "wezterm"
 }
 
-func (k *kittyRenderer) prepare(notes []Note) []tea.Cmd {
+func (k *kittyRenderer) prepare(notes []Note, revealed ...map[string]bool) []tea.Cmd {
 	if k == nil || !k.enabled {
 		return nil
 	}
+	var revealedCW map[string]bool
+	if len(revealed) > 0 {
+		revealedCW = revealed[0]
+	}
 	var cmds []tea.Cmd
-	for _, note := range notes {
-		if cmd := k.prepareAsset(note.User.AvatarURL, kittyColumns, kittyRows); cmd != nil {
+	for _, rawNote := range notes {
+		if cmd := k.prepareAsset(rawNote.User.AvatarURL, kittyColumns, kittyRows); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		note := actionNote(rawNote)
+		isRevealed := revealedCW[rawNote.ID]
+		if contentWarning(rawNote) != "" && !isRevealed {
+			continue
+		}
 		for _, attachment := range note.Attachments {
-			if !attachment.isImage() || attachment.Sensitive {
+			if !attachment.isImage() || (attachment.Sensitive && !isRevealed) {
 				continue
 			}
 			if cmd := k.prepareImageAsset(attachment.imageURL()); cmd != nil {
@@ -156,7 +165,7 @@ func (m *model) loadAvatars(notes []Note) tea.Cmd {
 	if m.kitty == nil {
 		return nil
 	}
-	return batchCommands(m.kitty.prepare(notes)...)
+	return batchCommands(m.kitty.prepare(notes, m.revealedCW)...)
 }
 
 func (m *model) resetImageCache() tea.Cmd {

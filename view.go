@@ -143,6 +143,12 @@ func (m model) mainView() string {
 		}
 	}
 	menuItems = append(menuItems, "", dim.Render(m.host), "", dim.Render("s: 設定"))
+	if m.selected >= 0 && m.selected < len(m.notes) {
+		note := m.notes[m.selected]
+		if contentWarning(note) != "" || hasSensitiveAttachment(actionNote(note)) {
+			menuItems = append(menuItems, dim.Render("w: CW切替"))
+		}
+	}
 	menu := lipgloss.NewStyle().Width(menuWidth).Render(strings.Join(menuItems, "\n"))
 
 	name := m.config.User.Name
@@ -194,7 +200,7 @@ func styleHashtags(text string) string {
 	})
 }
 
-func (m model) renderAttachments(attachments []Attachment, width int) string {
+func (m model) renderAttachments(attachments []Attachment, width int, revealed bool) string {
 	rows := make([]string, 0, len(attachments))
 	row := make([]string, 0, len(attachments))
 	rowWidth := 0
@@ -220,8 +226,8 @@ func (m model) renderAttachments(attachments []Attachment, width int) string {
 			continue
 		}
 		block := ""
-		if attachment.Sensitive {
-			block = dim.Render("[センシティブ画像]")
+		if attachment.Sensitive && !revealed {
+			block = dim.Render("[センシティブ画像]（w: 表示）")
 		} else if m.kitty != nil && attachment.imageURL() != "" {
 			block = m.kitty.placeholderFor(attachment.imageURL(), imageColumns, imageRows)
 		}
@@ -278,19 +284,28 @@ func (m model) renderNote(index, width int) string {
 	if t, err := time.Parse(time.RFC3339, note.CreatedAt); err == nil {
 		when = t.Local().Format("01/02 15:04")
 	}
+	warning := contentWarning(note)
+	revealed := warning == "" || m.revealedCW[note.ID]
 	text := strings.TrimSpace(content.Text)
-	if text == "" {
-		text = "[本文なし]"
-	}
-	if note.Renote != nil {
-		label := note.ReshareLabel
-		if label == "" {
-			label = "リノート"
+	if !revealed {
+		text = "CW: " + warning + "\n[非表示のコンテンツ]（w: 表示）"
+	} else {
+		if text == "" {
+			text = "[本文なし]"
 		}
-		text = renoteStyle.Render("↻ "+label) + "\n" + text
-	}
-	if reactions := reactionSummary(content); reactions != "" {
-		text += "\n" + reactions
+		if warning != "" {
+			text = "CW: " + warning + "\n" + text
+		}
+		if note.Renote != nil {
+			label := note.ReshareLabel
+			if label == "" {
+				label = "リノート"
+			}
+			text = renoteStyle.Render("↻ "+label) + "\n" + text
+		}
+		if reactions := reactionSummary(content); reactions != "" {
+			text += "\n" + reactions
+		}
 	}
 	text = styleHashtags(text)
 	text, emojiMarkers := m.layoutEmojiText(text)
@@ -301,8 +316,10 @@ func (m model) renderNote(index, width int) string {
 		detailsWidth = max(1, width-2-lipgloss.Width(prefix)-kittyColumns-1)
 	}
 	details := fmt.Sprintf("%s\n%s", header, text)
-	if attachments := m.renderAttachments(content.Attachments, detailsWidth); attachments != "" {
-		details += "\n" + attachments
+	if revealed {
+		if attachments := m.renderAttachments(content.Attachments, detailsWidth, m.revealedCW[note.ID]); attachments != "" {
+			details += "\n" + attachments
+		}
 	}
 	if avatar == "" {
 		rendered := textStyle.Width(detailsWidth).Padding(0, 1).Render(prefix + details)
