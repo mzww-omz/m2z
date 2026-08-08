@@ -204,15 +204,11 @@ func (m model) renderNote(index, width int) string {
 		text = "[本文なし]"
 	}
 	if note.Renote != nil {
-<<<<<<< HEAD
-		text = renoteStyle.Render("↻ リノート") + "\n" + text
-=======
 		label := note.ReshareLabel
 		if label == "" {
 			label = "リノート"
 		}
-		text = "↻ " + label + "\n" + strings.TrimSpace(note.Renote.Text)
->>>>>>> agent/mastodon
+		text = renoteStyle.Render("↻ "+label) + "\n" + text
 	}
 	if reactions := reactionSummary(content); reactions != "" {
 		text += "\n" + reactions

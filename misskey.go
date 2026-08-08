@@ -44,24 +44,15 @@ func (e *EmojiRefs) UnmarshalJSON(data []byte) error {
 }
 
 type Note struct {
-<<<<<<< HEAD
-	ID         string         `json:"id"`
-	CreatedAt  string         `json:"createdAt"`
-	Text       string         `json:"text"`
-	Emojis     EmojiRefs      `json:"emojis"`
-	User       User           `json:"user"`
-	Renote     *Note          `json:"renote"`
-	Reactions  map[string]int `json:"reactions"`
-	MyReaction *string        `json:"myReaction"`
-=======
-	ID           string    `json:"id"`
-	CreatedAt    string    `json:"createdAt"`
-	Text         string    `json:"text"`
-	Emojis       EmojiRefs `json:"emojis"`
-	User         User      `json:"user"`
-	Renote       *Note     `json:"renote"`
-	ReshareLabel string    `json:"-"`
->>>>>>> agent/mastodon
+	ID           string         `json:"id"`
+	CreatedAt    string         `json:"createdAt"`
+	Text         string         `json:"text"`
+	Emojis       EmojiRefs      `json:"emojis"`
+	User         User           `json:"user"`
+	Renote       *Note          `json:"renote"`
+	ReshareLabel string         `json:"-"`
+	Reactions    map[string]int `json:"reactions"`
+	MyReaction   *string        `json:"myReaction"`
 }
 
 type Meta struct {
@@ -139,14 +130,16 @@ func timelinePath(kind int) string {
 	return []string{"/api/notes/timeline", "/api/notes/local-timeline", "/api/notes/global-timeline"}[min(kind, 2)]
 }
 
-<<<<<<< HEAD
-func postCmd(host, token, text, replyID string) tea.Cmd {
+func postCmd(cfg Config, text, replyID string) tea.Cmd {
+	if cfg.provider() == ProviderMastodon {
+		return mastodonPostCmd(cfg, text, replyID)
+	}
 	return func() tea.Msg {
-		payload := map[string]any{"i": token, "text": text}
+		payload := map[string]any{"i": cfg.Token, "text": text}
 		if replyID != "" {
 			payload["replyId"] = replyID
 		}
-		err := apiCall(context.Background(), host+"/api/notes/create", token, payload, &struct{}{})
+		err := apiCall(context.Background(), cfg.Host+"/api/notes/create", cfg.Token, payload, &struct{}{})
 		return postResult{err: err}
 	}
 }
@@ -200,42 +193,3 @@ func actionNote(note Note) Note {
 	}
 	return note
 }
-
-func apiCall(ctx context.Context, endpoint, token string, payload any, out any) error {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(data))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
-	client := &http.Client{Timeout: 20 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("HTTP %s", resp.Status)
-	}
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return fmt.Errorf("レスポンスの解析に失敗: %w", err)
-	}
-	return nil
-}
-=======
-func postCmd(cfg Config, text string) tea.Cmd {
-	if cfg.provider() == ProviderMastodon {
-		return mastodonPostCmd(cfg, text)
-	}
-	return func() tea.Msg {
-		err := apiCall(context.Background(), cfg.Host+"/api/notes/create", cfg.Token, map[string]any{"i": cfg.Token, "text": text}, &struct{}{})
-		return postResult{err: err}
-	}
-}
->>>>>>> agent/mastodon

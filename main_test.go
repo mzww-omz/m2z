@@ -175,7 +175,7 @@ func TestPostCmdPayload(t *testing.T) {
 			}))
 			defer server.Close()
 
-			result := postCmd(server.URL, "token", "本文", tc.replyID)().(postResult)
+			result := postCmd(Config{Host: server.URL, Token: "token"}, "本文", tc.replyID)().(postResult)
 			if result.err != nil {
 				t.Fatal(result.err)
 			}

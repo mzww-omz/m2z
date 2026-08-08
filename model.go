@@ -17,8 +17,8 @@ type model struct {
 	width  int
 	height int
 
-<<<<<<< HEAD
 	setupInput    textinput.Model
+	authInput     textinput.Model
 	reactionInput textinput.Model
 	composer      textarea.Model
 	viewport      viewport.Model
@@ -28,6 +28,7 @@ type model struct {
 	host              string
 	session           string
 	authLink          string
+	pkceVerifier      string
 	config            Config
 	stream            *streamClient
 	menu              int
@@ -44,31 +45,6 @@ type model struct {
 	refreshSelectedID string
 	status            string
 	err               error
-=======
-	setupInput textinput.Model
-	authInput  textinput.Model
-	composer   textarea.Model
-	viewport   viewport.Model
-	kitty      *kittyRenderer
-	emojis     map[string]CustomEmoji
-
-	host          string
-	session       string
-	authLink      string
-	pkceVerifier  string
-	config        Config
-	stream        *streamClient
-	menu          int
-	settingsIndex int
-	confirmReset  bool
-	notes         []Note
-	selected      int
-	hasMore       bool
-	loadingOlder  bool
-	busy          bool
-	status        string
-	err           error
->>>>>>> agent/mastodon
 }
 
 func newModel(cfg *Config) model {
@@ -79,21 +55,19 @@ func newModel(cfg *Config) model {
 	input.Width = 60
 	input.Focus()
 
-<<<<<<< HEAD
-	reactionInput := textinput.New()
-	reactionInput.Prompt = "リアクション: "
-	reactionInput.Placeholder = "👍 または :emoji:"
-	reactionInput.CharLimit = 128
-	reactionInput.Width = 40
-	reactionInput.Blur()
-=======
 	authInput := textinput.New()
 	authInput.Prompt = "> "
 	authInput.Placeholder = "認証コード"
 	authInput.CharLimit = 512
 	authInput.Width = 60
 	authInput.Blur()
->>>>>>> agent/mastodon
+
+	reactionInput := textinput.New()
+	reactionInput.Prompt = "リアクション: "
+	reactionInput.Placeholder = "👍 または :emoji:"
+	reactionInput.CharLimit = 128
+	reactionInput.Width = 40
+	reactionInput.Blur()
 
 	composer := textarea.New()
 	composer.Placeholder = "投稿内容"
@@ -102,27 +76,16 @@ func newModel(cfg *Config) model {
 	composer.Blur()
 
 	m := model{
-<<<<<<< HEAD
 		screen:        setupScreen,
 		focus:         composerFocus,
 		setupInput:    input,
+		authInput:     authInput,
 		reactionInput: reactionInput,
 		composer:      composer,
 		viewport:      viewport.New(1, 1),
 		kitty:         newKittyRenderer(),
 		emojis:        make(map[string]CustomEmoji),
 		status:        "サーバーURLを入力してください",
-=======
-		screen:     setupScreen,
-		focus:      composerFocus,
-		setupInput: input,
-		authInput:  authInput,
-		composer:   composer,
-		viewport:   viewport.New(1, 1),
-		kitty:      newKittyRenderer(),
-		emojis:     make(map[string]CustomEmoji),
-		status:     "サーバーURLを入力してください",
->>>>>>> agent/mastodon
 	}
 	if cfg != nil && cfg.Host != "" && cfg.Token != "" {
 		m.screen = mainScreen
@@ -283,8 +246,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.replyTo = nil
 		m.resize()
 		m.status, m.err = "投稿しました", nil
-<<<<<<< HEAD
-		return m, timelineCmd(m.host, m.config.Token, m.menu)
+		return m, timelineCmd(m.config, m.menu)
 	case reactionResult:
 		if msg.err != nil {
 			m.busy = false
@@ -293,7 +255,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.status, m.err = "リアクションしました。更新中…", nil
-		return m, timelineCmd(m.host, m.config.Token, m.menu)
+		return m, timelineCmd(m.config, m.menu)
 	case renoteResult:
 		if msg.err != nil {
 			m.busy = false
@@ -302,10 +264,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.status, m.err = "リノートしました。更新中…", nil
-		return m, timelineCmd(m.host, m.config.Token, m.menu)
-=======
 		return m, timelineCmd(m.config, m.menu)
->>>>>>> agent/mastodon
 	case tea.MouseMsg:
 		return m.updateMouse(msg)
 	case tea.KeyMsg:
@@ -465,7 +424,7 @@ func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setFocus()
 		return m, nil
 	}
-	if key == "a" && m.focus == contentFocus && !m.busy && len(m.notes) > 0 {
+	if key == "a" && m.config.provider() == ProviderMisskey && m.focus == contentFocus && !m.busy && len(m.notes) > 0 {
 		target := actionNote(m.notes[m.selected])
 		value := "👍"
 		if target.MyReaction != nil {
@@ -477,7 +436,7 @@ func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = "リアクションを入力してください（Esc: キャンセル）"
 		return m, nil
 	}
-	if key == "n" && m.focus == contentFocus && !m.busy && len(m.notes) > 0 {
+	if key == "n" && m.config.provider() == ProviderMisskey && m.focus == contentFocus && !m.busy && len(m.notes) > 0 {
 		m.confirmRenote = true
 		m.status = "このノートをリノートしますか？ y/Enter: 実行 n/Esc: キャンセル"
 		return m, nil
@@ -500,15 +459,11 @@ func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.focus == composerFocus {
 		if key == "enter" && !m.busy && strings.TrimSpace(m.composer.Value()) != "" {
 			m.busy, m.status, m.err = true, "投稿中…", nil
-<<<<<<< HEAD
 			replyID := ""
 			if m.replyTo != nil {
 				replyID = m.replyTo.ID
 			}
-			return m, postCmd(m.host, m.config.Token, m.composer.Value(), replyID)
-=======
-			return m, postCmd(m.config, m.composer.Value())
->>>>>>> agent/mastodon
+			return m, postCmd(m.config, m.composer.Value(), replyID)
 		}
 		var cmd tea.Cmd
 		m.composer, cmd = m.composer.Update(msg)

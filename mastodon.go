@@ -185,9 +185,12 @@ func mastodonTimelineCmd(cfg Config, kind int, maxID string) tea.Cmd {
 	}
 }
 
-func mastodonPostCmd(cfg Config, text string) tea.Cmd {
+func mastodonPostCmd(cfg Config, text, replyID string) tea.Cmd {
 	return func() tea.Msg {
 		values := url.Values{"status": {text}}
+		if replyID != "" {
+			values.Set("in_reply_to_id", replyID)
+		}
 		return postResult{err: apiForm(context.Background(), http.MethodPost, cfg.Host+"/api/v1/statuses", cfg.Token, values, &mastodonStatus{})}
 	}
 }
