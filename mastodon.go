@@ -179,9 +179,9 @@ func mastodonTimelineCmd(cfg Config, kind int, maxID string) tea.Cmd {
 			notes = append(notes, mastodonStatusToNote(status))
 		}
 		if maxID == "" {
-			return timelineResult{notes: notes, err: err}
+			return timelineResult{accountKey: cfg.accountKey(), notes: notes, err: err}
 		}
-		return olderTimelineResult{notes: notes, err: err}
+		return olderTimelineResult{accountKey: cfg.accountKey(), notes: notes, err: err}
 	}
 }
 
@@ -199,7 +199,7 @@ func mastodonEmojiCatalogCmd(cfg Config) tea.Cmd {
 	return func() tea.Msg {
 		var source []mastodonEmoji
 		if err := apiGet(context.Background(), cfg.Host+"/api/v1/custom_emojis", cfg.Token, &source); err != nil {
-			return emojiCatalogResult{err: err}
+			return emojiCatalogResult{accountKey: cfg.accountKey(), err: err}
 		}
 		emojis := make([]CustomEmoji, 0, len(source))
 		for _, emoji := range source {
@@ -211,7 +211,7 @@ func mastodonEmojiCatalogCmd(cfg Config) tea.Cmd {
 				emojis = append(emojis, CustomEmoji{Name: emoji.Shortcode, URL: imageURL})
 			}
 		}
-		return emojiCatalogResult{emojis: emojis}
+		return emojiCatalogResult{accountKey: cfg.accountKey(), emojis: emojis}
 	}
 }
 

@@ -83,9 +83,29 @@ func (m model) authView() string {
 	return lipgloss.NewStyle().Padding(2, 4).Render(strings.Join(lines, "\n"))
 }
 
-var settingsMenuItems = []string{"アカウントを追加", "アイコンキャッシュを削除", "戻る"}
+func (m model) settingsItems() []string {
+	items := make([]string, 0, len(m.config.Accounts)+3)
+	for _, account := range m.config.Accounts {
+		name := account.User.Name
+		if name == "" {
+			name = account.User.Username
+		}
+		if name == "" {
+			name = account.Host
+		}
+		if account.User.Username != "" && account.User.Username != name {
+			name += " @" + account.User.Username
+		}
+		if sameAccount(account, m.config.currentAccount()) {
+			name += " (現在)"
+		}
+		items = append(items, name)
+	}
+	return append(items, "アカウントを追加", "アイコンキャッシュを削除", "戻る")
+}
 
 func (m model) settingsView() string {
+	items := m.settingsItems()
 	lines := []string{accent.Render("m2z — 設定"), ""}
 	if m.confirmReset {
 		lines = append(lines,
@@ -95,7 +115,7 @@ func (m model) settingsView() string {
 			dim.Render("y / Enter: 実行   n / Esc: キャンセル"),
 		)
 	} else {
-		for i, item := range settingsMenuItems {
+		for i, item := range items {
 			prefix := "  "
 			if i == m.settingsIndex {
 				prefix = "▸ "

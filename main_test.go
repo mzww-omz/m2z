@@ -354,10 +354,58 @@ func TestSettingsCanStartAddingAccount(t *testing.T) {
 	m.focus = contentFocus
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	updated, _ = updated.(model).Update(tea.KeyMsg{Type: tea.KeyDown})
 	updated, _ = updated.(model).Update(tea.KeyMsg{Type: tea.KeyEnter})
 	got := updated.(model)
 	if got.screen != setupScreen || !got.addingAccount || len(got.config.Accounts) != 1 {
 		t.Fatalf("account add flow did not start: screen=%v adding=%v accounts=%d", got.screen, got.addingAccount, len(got.config.Accounts))
+	}
+}
+
+func TestSettingsCanSwitchAccount(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	accounts := []Account{
+		{Provider: ProviderMisskey, Host: "https://one.example", Token: "one", User: User{ID: "one"}},
+		{Provider: ProviderMastodon, Host: "https://two.example", Token: "two", User: User{ID: "two"}, StatusMaxCharacters: 140},
+	}
+	m := newModel(&Config{
+		Provider: ProviderMisskey,
+		Host:     accounts[0].Host,
+		Token:    accounts[0].Token,
+		User:     accounts[0].User,
+		Accounts: accounts,
+	})
+	m.screen = mainScreen
+	m.focus = contentFocus
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	updated, _ = updated.(model).Update(tea.KeyMsg{Type: tea.KeyDown})
+	updated, cmd := updated.(model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	got := updated.(model)
+	if cmd == nil || got.screen != mainScreen || got.config.Host != accounts[1].Host || got.config.Provider != ProviderMastodon || !got.busy {
+		t.Fatalf("account was not switched: screen=%v host=%q provider=%q busy=%v cmd=%v", got.screen, got.config.Host, got.config.Provider, got.busy, cmd != nil)
+	}
+	if got.composer.CharLimit != accounts[1].StatusMaxCharacters {
+		t.Fatalf("account-specific character limit was not applied: %d", got.composer.CharLimit)
+	}
+	saved, err := loadConfig()
+	if err != nil || saved.Host != accounts[1].Host {
+		t.Fatalf("switched account was not persisted: cfg=%+v err=%v", saved, err)
+	}
+}
+
+func TestStaleTimelineResultIsIgnored(t *testing.T) {
+	m := newModel(&Config{Host: "https://current.example", Token: "current"})
+	m.screen = mainScreen
+	m.busy = true
+
+	updated, _ := m.Update(timelineResult{
+		accountKey: (Config{Host: "https://old.example", Token: "old"}).accountKey(),
+		notes:      []Note{{ID: "old"}},
+	})
+	got := updated.(model)
+	if !got.busy || len(got.notes) != 0 {
+		t.Fatalf("stale timeline result was applied: busy=%v notes=%+v", got.busy, got.notes)
 	}
 }
 

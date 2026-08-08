@@ -177,6 +177,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.screen, m.focus, m.status, m.err = mainScreen, contentFocus, "認証しました。タイムラインを読み込み中…", nil
 		return m, tea.Sequence(m.kitty.clearCmd(), batchCommands(timelineCmd(m.config, m.menu), emojiCatalogCmd(m.config)))
 	case emojiCatalogResult:
+		if msg.accountKey != "" && msg.accountKey != m.config.accountKey() {
+			return m, nil
+		}
 		if msg.err == nil {
 			m.emojis = buildEmojiCatalog(msg.emojis)
 			emojiCmd := m.loadEmojiAssets(m.notes)
@@ -189,6 +192,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateViewport()
 		return m, uploadCmd
 	case timelineResult:
+		if msg.accountKey != "" && msg.accountKey != m.config.accountKey() {
+			return m, nil
+		}
 		m.busy = false
 		selectedID := m.refreshSelectedID
 		m.refreshSelectedID = ""
@@ -211,6 +217,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateViewport()
 		return m, batchCommands(m.ensureStream(), avatarCmd, emojiCmd)
 	case olderTimelineResult:
+		if msg.accountKey != "" && msg.accountKey != m.config.accountKey() {
+			return m, nil
+		}
 		m.loadingOlder = false
 		if msg.err != nil {
 			m.err, m.status = msg.err, "過去の投稿を読み込めませんでした"
@@ -412,8 +421,9 @@ func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if key == "s" && m.focus != composerFocus {
+		m.config.rememberCurrentAccount()
 		m.screen = settingsScreen
-		m.settingsIndex = 0
+		m.settingsIndex = m.currentAccountIndex()
 		m.confirmReset = false
 		return m, nil
 	}
@@ -539,16 +549,21 @@ func (m model) updateSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.screen, m.confirmReset = mainScreen, false
 		return m, nil
 	}
+	accountCount := len(m.config.Accounts)
+	itemCount := accountCount + 3
 	if key == "j" || key == "down" {
-		m.settingsIndex = (m.settingsIndex + 1) % len(settingsMenuItems)
+		m.settingsIndex = (m.settingsIndex + 1) % itemCount
 		return m, nil
 	}
 	if key == "k" || key == "up" {
-		m.settingsIndex = (m.settingsIndex + len(settingsMenuItems) - 1) % len(settingsMenuItems)
+		m.settingsIndex = (m.settingsIndex + itemCount - 1) % itemCount
 		return m, nil
 	}
 	if key == "enter" {
-		switch m.settingsIndex {
+		if m.settingsIndex < accountCount {
+			return m.switchAccount(m.settingsIndex)
+		}
+		switch m.settingsIndex - accountCount {
 		case 0:
 			m.beginAddAccount()
 		case 1:
@@ -558,6 +573,54 @@ func (m model) updateSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m model) currentAccountIndex() int {
+	current := m.config.currentAccount()
+	for i, account := range m.config.Accounts {
+		if sameAccount(account, current) {
+			return i
+		}
+	}
+	return 0
+}
+
+func (m model) switchAccount(index int) (tea.Model, tea.Cmd) {
+	if index < 0 || index >= len(m.config.Accounts) {
+		return m, nil
+	}
+	account := m.config.Accounts[index]
+	if sameAccount(account, m.config.currentAccount()) {
+		m.screen = mainScreen
+		return m, nil
+	}
+
+	previous := m.config
+	m.config.setCurrentAccount(account)
+	if err := saveConfig(m.config); err != nil {
+		m.config = previous
+		m.err, m.status = err, "設定を保存できませんでした"
+		return m, nil
+	}
+
+	m.stopStream()
+	m.host = m.config.Host
+	m.screen, m.focus = mainScreen, contentFocus
+	m.setFocus()
+	m.notes = nil
+	m.selected = 0
+	m.hasMore = false
+	m.loadingOlder = false
+	m.refreshSelectedID = ""
+	m.emojis = make(map[string]CustomEmoji)
+	m.updateViewport()
+	if m.config.StatusMaxCharacters > 0 {
+		m.composer.CharLimit = m.config.StatusMaxCharacters
+	} else {
+		m.composer.CharLimit = 3000
+	}
+	m.busy, m.status, m.err = true, "アカウントを切り替え中…", nil
+	return m, tea.Sequence(m.kitty.clearCmd(), batchCommands(timelineCmd(m.config, m.menu), emojiCatalogCmd(m.config)))
 }
 
 func (m *model) beginAddAccount() {

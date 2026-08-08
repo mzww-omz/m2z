@@ -62,13 +62,15 @@ type Meta struct {
 }
 
 type timelineResult struct {
-	notes []Note
-	err   error
+	accountKey string
+	notes      []Note
+	err        error
 }
 
 type olderTimelineResult struct {
-	notes []Note
-	err   error
+	accountKey string
+	notes      []Note
+	err        error
 }
 
 type postResult struct{ err error }
@@ -82,24 +84,24 @@ func emojiCatalogCmd(cfg Config) tea.Cmd {
 	return func() tea.Msg {
 		var raw json.RawMessage
 		if err := apiCall(context.Background(), cfg.Host+"/api/emojis", "", map[string]any{}, &raw); err != nil {
-			return emojiCatalogResult{err: err}
+			return emojiCatalogResult{accountKey: cfg.accountKey(), err: err}
 		}
 		var emojis []CustomEmoji
 		trimmed := bytes.TrimSpace(raw)
 		if len(trimmed) > 0 && trimmed[0] == '[' {
 			if err := json.Unmarshal(trimmed, &emojis); err != nil {
-				return emojiCatalogResult{err: err}
+				return emojiCatalogResult{accountKey: cfg.accountKey(), err: err}
 			}
 		} else {
 			var response struct {
 				Emojis []CustomEmoji `json:"emojis"`
 			}
 			if err := json.Unmarshal(trimmed, &response); err != nil {
-				return emojiCatalogResult{err: err}
+				return emojiCatalogResult{accountKey: cfg.accountKey(), err: err}
 			}
 			emojis = response.Emojis
 		}
-		return emojiCatalogResult{emojis: emojis}
+		return emojiCatalogResult{accountKey: cfg.accountKey(), emojis: emojis}
 	}
 }
 
@@ -110,7 +112,7 @@ func timelineCmd(cfg Config, kind int) tea.Cmd {
 	return func() tea.Msg {
 		var notes []Note
 		err := apiCall(context.Background(), cfg.Host+timelinePath(kind), cfg.Token, map[string]any{"i": cfg.Token, "limit": requestLimit}, &notes)
-		return timelineResult{notes: notes, err: err}
+		return timelineResult{accountKey: cfg.accountKey(), notes: notes, err: err}
 	}
 }
 
@@ -122,7 +124,7 @@ func olderTimelineCmd(cfg Config, kind int, untilID string) tea.Cmd {
 		var notes []Note
 		payload := map[string]any{"i": cfg.Token, "limit": requestLimit, "untilId": untilID}
 		err := apiCall(context.Background(), cfg.Host+timelinePath(kind), cfg.Token, payload, &notes)
-		return olderTimelineResult{notes: notes, err: err}
+		return olderTimelineResult{accountKey: cfg.accountKey(), notes: notes, err: err}
 	}
 }
 

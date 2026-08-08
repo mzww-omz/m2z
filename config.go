@@ -78,6 +78,25 @@ func (c *Config) rememberCurrentAccount() {
 	c.Accounts = append(c.Accounts, current)
 }
 
+func (c Config) accountKey() string {
+	return accountKey(c.currentAccount())
+}
+
+func accountKey(account Account) string {
+	provider := account.Provider
+	if provider == "" {
+		provider = ProviderMisskey
+	}
+	identity := account.User.ID
+	if identity == "" {
+		identity = account.User.Username
+	}
+	if identity == "" {
+		identity = account.Token
+	}
+	return string(provider) + "\x00" + account.Host + "\x00" + identity
+}
+
 func sameAccount(a, b Account) bool {
 	if a.Provider == "" {
 		a.Provider = ProviderMisskey

@@ -27,8 +27,9 @@ type CustomEmoji struct {
 }
 
 type emojiCatalogResult struct {
-	emojis []CustomEmoji
-	err    error
+	accountKey string
+	emojis     []CustomEmoji
+	err        error
 }
 
 func buildEmojiCatalog(emojis []CustomEmoji) map[string]CustomEmoji {
