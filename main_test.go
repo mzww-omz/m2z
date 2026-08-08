@@ -70,6 +70,19 @@ func TestNoteEmojiRefsAcceptObjectAndArray(t *testing.T) {
 	}
 }
 
+func TestNoteAttachmentsDecodeMisskeyFiles(t *testing.T) {
+	var note Note
+	if err := json.Unmarshal([]byte(`{"files":[{"url":"https://example/image.png","thumbnailUrl":"https://example/thumb.png","type":"image/png","comment":"説明"},{"url":"https://example/video.mp4","type":"video/mp4"}]}`), &note); err != nil {
+		t.Fatal(err)
+	}
+	if len(note.Attachments) != 2 || !note.Attachments[0].isImage() || note.Attachments[0].imageURL() != "https://example/thumb.png" {
+		t.Fatalf("image attachment was not decoded: %+v", note.Attachments)
+	}
+	if note.Attachments[0].Description != "説明" || note.Attachments[1].isImage() {
+		t.Fatalf("attachment metadata was not preserved: %+v", note.Attachments)
+	}
+}
+
 func TestReactionAndRenoteCommandsUseTargetNote(t *testing.T) {
 	var paths []string
 	var payloads []map[string]any
@@ -264,6 +277,42 @@ func TestRenderNoteHighlightsHashtagsRenotesAndReactions(t *testing.T) {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered note does not contain styled %q: %q", want, rendered)
 		}
+	}
+}
+
+func TestRenderNoteShowsImageAttachmentFallback(t *testing.T) {
+	m := newModel(nil)
+	m.kitty = &kittyRenderer{enabled: false}
+	m.notes = []Note{{
+		ID: "1",
+		Attachments: []Attachment{
+			{URL: "https://example/image.png", Type: "image/png"},
+			{URL: "https://example/private.png", Type: "image/png", Sensitive: true},
+			{URL: "https://example/video.mp4", Type: "video/mp4"},
+		},
+	}}
+
+	rendered := m.renderNote(0, 80)
+	for _, want := range []string{"[画像] https://example/image.png", "[センシティブ画像]"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("attachment fallback is missing %q: %q", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "video.mp4") {
+		t.Fatalf("non-image attachment was rendered: %q", rendered)
+	}
+}
+
+func TestKittyPrepareIncludesImageAttachments(t *testing.T) {
+	const imageURL = "https://example/image.png"
+	k := &kittyRenderer{enabled: true, images: make(map[string]*kittyImage)}
+	cmds := k.prepare([]Note{{Attachments: []Attachment{{URL: imageURL, Type: "image/png"}}}})
+	if len(cmds) != 1 {
+		t.Fatalf("image attachment was not prepared: commands=%d images=%+v", len(cmds), k.images)
+	}
+	image, ok := k.images[imageURL]
+	if !ok || !image.imageAsset || image.columns != imageColumns || image.rows != imageRows {
+		t.Fatalf("image asset was not initialized: ok=%v image=%+v", ok, image)
 	}
 }
 

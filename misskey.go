@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -43,12 +44,33 @@ func (e *EmojiRefs) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type Attachment struct {
+	URL         string `json:"url"`
+	PreviewURL  string `json:"thumbnailUrl"`
+	Type        string `json:"type"`
+	Description string `json:"comment"`
+	Sensitive   bool   `json:"isSensitive"`
+}
+
+func (a Attachment) imageURL() string {
+	if a.PreviewURL != "" {
+		return a.PreviewURL
+	}
+	return a.URL
+}
+
+func (a Attachment) isImage() bool {
+	typeName := strings.ToLower(strings.TrimSpace(a.Type))
+	return typeName == "" || typeName == "image" || strings.HasPrefix(typeName, "image/")
+}
+
 type Note struct {
 	ID           string         `json:"id"`
 	CreatedAt    string         `json:"createdAt"`
 	Text         string         `json:"text"`
 	Emojis       EmojiRefs      `json:"emojis"`
 	User         User           `json:"user"`
+	Attachments  []Attachment   `json:"files"`
 	Renote       *Note          `json:"renote"`
 	ReshareLabel string         `json:"-"`
 	Reactions    map[string]int `json:"reactions"`

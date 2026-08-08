@@ -10,6 +10,7 @@ import (
 	_ "image/jpeg"
 	"image/png"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,6 +27,8 @@ const (
 	maxAvatarBytes     = 8 << 20
 	maxAvatarDimension = 2048
 	avatarSize         = 128
+	imageColumns       = 16
+	imageRows          = 8
 	kittyColumns       = 4
 	kittyRows          = 2
 	kittyChunkSize     = 4096
@@ -52,6 +55,7 @@ type kittyImage struct {
 	loading     bool
 	ready       bool
 	autoSize    bool
+	imageAsset  bool
 }
 
 type kittyRenderer struct {
@@ -100,19 +104,31 @@ func (k *kittyRenderer) prepare(notes []Note) []tea.Cmd {
 		if cmd := k.prepareAsset(note.User.AvatarURL, kittyColumns, kittyRows); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		for _, attachment := range note.Attachments {
+			if !attachment.isImage() || attachment.Sensitive {
+				continue
+			}
+			if cmd := k.prepareImageAsset(attachment.imageURL()); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
 	}
 	return cmds
 }
 
 func (k *kittyRenderer) prepareAsset(rawURL string, columns, rows int) tea.Cmd {
-	return k.prepareAssetMode(rawURL, columns, rows, false)
+	return k.prepareAssetMode(rawURL, columns, rows, false, false)
 }
 
 func (k *kittyRenderer) prepareEmojiAsset(rawURL string, columns, rows int) tea.Cmd {
-	return k.prepareAssetMode(rawURL, columns, rows, true)
+	return k.prepareAssetMode(rawURL, columns, rows, true, false)
 }
 
-func (k *kittyRenderer) prepareAssetMode(rawURL string, columns, rows int, autoSize bool) tea.Cmd {
+func (k *kittyRenderer) prepareImageAsset(rawURL string) tea.Cmd {
+	return k.prepareAssetMode(rawURL, imageColumns, imageRows, false, true)
+}
+
+func (k *kittyRenderer) prepareAssetMode(rawURL string, columns, rows int, autoSize, imageAsset bool) tea.Cmd {
 	if k == nil || !k.enabled {
 		return nil
 	}
@@ -130,6 +146,7 @@ func (k *kittyRenderer) prepareAssetMode(rawURL string, columns, rows int, autoS
 		rows:        rows,
 		loading:     true,
 		autoSize:    autoSize,
+		imageAsset:  imageAsset,
 	}
 	k.nextID++
 	return avatarCmd(rawURL)
@@ -174,8 +191,25 @@ func (k *kittyRenderer) finish(msg avatarResult) tea.Cmd {
 	if img.autoSize && msg.width > 0 && msg.height > 0 {
 		img.columns, img.rows = emojiDimensions(CustomEmoji{Width: msg.width, Height: msg.height})
 	}
+	if img.imageAsset && msg.width > 0 && msg.height > 0 {
+		img.columns, img.rows = imageDimensions(msg.width, msg.height)
+	}
 	img.ready = true
 	return k.writeCmd(kittyUploadMode(msg.data, img.id, img.columns, img.rows, img.autoSize, img.placementID))
+}
+
+func imageDimensions(width, height int) (int, int) {
+	if width < 1 || height < 1 {
+		return imageColumns, imageRows
+	}
+	aspect := float64(width) / float64(height)
+	rows := max(3, min(imageRows, int(math.Round(float64(imageColumns)/(aspect*2)))))
+	columns := int(math.Round(aspect * float64(rows) * 2))
+	columns = max(4, min(imageColumns, columns))
+	if columns == imageColumns {
+		rows = max(3, min(imageRows, int(math.Round(float64(columns)/(aspect*2)))))
+	}
+	return columns, rows
 }
 
 func (m model) avatarPlaceholder(avatarURL string) string {

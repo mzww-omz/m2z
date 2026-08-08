@@ -194,6 +194,60 @@ func styleHashtags(text string) string {
 	})
 }
 
+func (m model) renderAttachments(attachments []Attachment, width int) string {
+	rows := make([]string, 0, len(attachments))
+	row := make([]string, 0, len(attachments))
+	rowWidth := 0
+	width = max(1, width)
+	flush := func() {
+		if len(row) == 0 {
+			return
+		}
+		parts := make([]string, 0, len(row)*2-1)
+		for i, block := range row {
+			if i > 0 {
+				parts = append(parts, "  ")
+			}
+			parts = append(parts, block)
+		}
+		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, parts...))
+		row = nil
+		rowWidth = 0
+	}
+
+	for _, attachment := range attachments {
+		if !attachment.isImage() {
+			continue
+		}
+		block := ""
+		if attachment.Sensitive {
+			block = dim.Render("[センシティブ画像]")
+		} else if m.kitty != nil && attachment.imageURL() != "" {
+			block = m.kitty.placeholderFor(attachment.imageURL(), imageColumns, imageRows)
+		}
+		if block == "" {
+			label := "[画像]"
+			if attachment.Description != "" {
+				label += " " + attachment.Description
+			} else if attachment.URL != "" {
+				label += " " + attachment.URL
+			}
+			block = dim.Render(label)
+		}
+		blockWidth := max(1, lipgloss.Width(block))
+		if len(row) > 0 && rowWidth+2+blockWidth > width {
+			flush()
+		}
+		row = append(row, block)
+		if rowWidth > 0 {
+			rowWidth += 2
+		}
+		rowWidth += blockWidth
+	}
+	flush()
+	return strings.Join(rows, "\n")
+}
+
 func (m model) renderNotes(width int) string {
 	if len(m.notes) == 0 {
 		return dim.Render("投稿がありません")
@@ -241,14 +295,20 @@ func (m model) renderNote(index, width int) string {
 	text = styleHashtags(text)
 	text, emojiMarkers := m.layoutEmojiText(text)
 	header := fmt.Sprintf("%s %s  %s", name, handle, dim.Render(when))
-	details := fmt.Sprintf("%s\n%s", header, text)
 	avatar := m.avatarPlaceholder(note.User.AvatarURL)
+	detailsWidth := max(1, width-2)
+	if avatar != "" {
+		detailsWidth = max(1, width-2-lipgloss.Width(prefix)-kittyColumns-1)
+	}
+	details := fmt.Sprintf("%s\n%s", header, text)
+	if attachments := m.renderAttachments(content.Attachments, detailsWidth); attachments != "" {
+		details += "\n" + attachments
+	}
 	if avatar == "" {
-		rendered := textStyle.Width(max(1, width-2)).Padding(0, 1).Render(prefix + details)
+		rendered := textStyle.Width(detailsWidth).Padding(0, 1).Render(prefix + details)
 		return replaceEmojiMarkers(rendered, emojiMarkers)
 	}
 
-	detailsWidth := max(1, width-2-lipgloss.Width(prefix)-kittyColumns-1)
 	details = textStyle.Width(detailsWidth).Render(details)
 	block := lipgloss.JoinHorizontal(lipgloss.Top, prefix, avatar, " ", details)
 	rendered := lipgloss.NewStyle().Padding(0, 1).Render(block)

@@ -166,6 +166,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err, m.status = msg.err, "認証を確認できませんでした"
 			return m, nil
 		}
+		addingAccount := m.addingAccount
 		m.config.Host, m.config.Token, m.config.User = m.host, msg.token, msg.user
 		m.config.rememberCurrentAccount()
 		m.authInput.Blur()
@@ -173,8 +174,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err, m.status = err, "設定を保存できませんでした"
 			return m, nil
 		}
+		if addingAccount {
+			m.kitty.reset()
+			m.notes = nil
+			m.selected = 0
+			m.hasMore = false
+			m.loadingOlder = false
+			m.emojis = make(map[string]CustomEmoji)
+		}
 		m.addingAccount = false
 		m.screen, m.focus, m.status, m.err = mainScreen, contentFocus, "認証しました。タイムラインを読み込み中…", nil
+		m.updateViewport()
 		return m, tea.Sequence(m.kitty.clearCmd(), batchCommands(timelineCmd(m.config, m.menu), emojiCatalogCmd(m.config)))
 	case emojiCatalogResult:
 		if msg.accountKey != "" && msg.accountKey != m.config.accountKey() {
@@ -604,6 +614,7 @@ func (m model) switchAccount(index int) (tea.Model, tea.Cmd) {
 	}
 
 	m.stopStream()
+	m.kitty.reset()
 	m.host = m.config.Host
 	m.screen, m.focus = mainScreen, contentFocus
 	m.setFocus()

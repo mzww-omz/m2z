@@ -56,13 +56,21 @@ type mastodonAccount struct {
 	AvatarStatic string `json:"avatar_static"`
 }
 
+type mastodonMediaAttachment struct {
+	Type        string `json:"type"`
+	URL         string `json:"url"`
+	PreviewURL  string `json:"preview_url"`
+	Description string `json:"description"`
+}
+
 type mastodonStatus struct {
-	ID          string          `json:"id"`
-	CreatedAt   string          `json:"created_at"`
-	Content     string          `json:"content"`
-	SpoilerText string          `json:"spoiler_text"`
-	Account     mastodonAccount `json:"account"`
-	Reblog      *mastodonStatus `json:"reblog"`
+	ID               string                    `json:"id"`
+	CreatedAt        string                    `json:"created_at"`
+	Content          string                    `json:"content"`
+	SpoilerText      string                    `json:"spoiler_text"`
+	Account          mastodonAccount           `json:"account"`
+	MediaAttachments []mastodonMediaAttachment `json:"media_attachments"`
+	Reblog           *mastodonStatus           `json:"reblog"`
 }
 
 type mastodonEmoji struct {
@@ -221,6 +229,7 @@ func mastodonStatusToNote(status mastodonStatus) Note {
 		CreatedAt:    status.CreatedAt,
 		Text:         mastodonHTMLToText(status.Content),
 		User:         mastodonAccountToUser(status.Account),
+		Attachments:  mastodonAttachmentsToAttachments(status.MediaAttachments),
 		ReshareLabel: "ブースト",
 	}
 	if status.SpoilerText != "" {
@@ -231,6 +240,22 @@ func mastodonStatusToNote(status mastodonStatus) Note {
 		note.Renote = &reblog
 	}
 	return note
+}
+
+func mastodonAttachmentsToAttachments(source []mastodonMediaAttachment) []Attachment {
+	attachments := make([]Attachment, 0, len(source))
+	for _, attachment := range source {
+		if attachment.Type != "image" || attachment.URL == "" && attachment.PreviewURL == "" {
+			continue
+		}
+		attachments = append(attachments, Attachment{
+			URL:         attachment.URL,
+			PreviewURL:  attachment.PreviewURL,
+			Type:        attachment.Type,
+			Description: attachment.Description,
+		})
+	}
+	return attachments
 }
 
 func mastodonAccountToUser(account mastodonAccount) User {

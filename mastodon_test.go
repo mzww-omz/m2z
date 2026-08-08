@@ -54,6 +54,10 @@ func TestMastodonStatusToNote(t *testing.T) {
 			DisplayName:  "User",
 			AvatarStatic: "https://example.social/avatar.png",
 		},
+		MediaAttachments: []mastodonMediaAttachment{
+			{Type: "image", URL: "https://example.social/image.png", PreviewURL: "https://example.social/preview.png", Description: "画像"},
+			{Type: "video", URL: "https://example.social/video.mp4"},
+		},
 		Reblog: &mastodonStatus{
 			ID:      "1",
 			Content: "<p>original</p>",
@@ -66,6 +70,9 @@ func TestMastodonStatusToNote(t *testing.T) {
 	}
 	if note.Renote == nil || note.Renote.Text != "original" {
 		t.Fatalf("reblog was not mapped: %+v", note.Renote)
+	}
+	if len(note.Attachments) != 1 || note.Attachments[0].imageURL() != "https://example.social/preview.png" || note.Attachments[0].Description != "画像" {
+		t.Fatalf("media attachments were not mapped: %+v", note.Attachments)
 	}
 }
 
