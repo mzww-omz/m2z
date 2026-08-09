@@ -776,6 +776,46 @@ func TestKittyUploadQueueIsBounded(t *testing.T) {
 	k.close()
 }
 
+func TestKittyUploadAdmissionIsBlockedUntilClearCompletes(t *testing.T) {
+	const imageURL = "https://example/image"
+	writer := &blockingKittyWriter{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	k := &kittyRenderer{
+		enabled: true,
+		output:  writer,
+		images: map[string]*kittyImage{
+			"https://example/old": {id: 1, placementID: 2, ready: true},
+		},
+	}
+	k.reset()
+	k.prepareAsset(imageURL, kittyColumns, kittyRows)
+	clearDone := make(chan tea.Msg, 1)
+	go func() { clearDone <- k.clearCmd()() }()
+	<-writer.started
+
+	image := k.images[imageURL]
+	if cmd := k.finish(avatarResult{url: imageURL, generation: image.generation, data: []byte("new")}); cmd != nil || !image.failed || image.loading {
+		t.Fatalf("upload was not rejected as retryable during clear: cmd=%v image=%+v", cmd, image)
+	}
+
+	close(writer.release)
+	<-clearDone
+
+	k.prepareAsset(imageURL, kittyColumns, kittyRows)
+	image = k.images[imageURL]
+	retry := k.finish(avatarResult{url: imageURL, generation: image.generation, data: []byte("retry")})
+	if retry == nil {
+		t.Fatal("failed image was not retryable after clear")
+	}
+	result, ok := retry().(kittyUploadResult)
+	if !ok || result.err != nil || !k.completeUpload(result) {
+		t.Fatalf("retry upload failed: ok=%v result=%#v", ok, result)
+	}
+	k.close()
+}
+
 func TestStaleAvatarResultAfterResetIsIgnored(t *testing.T) {
 	const avatarURL = "https://example/avatar"
 	k := &kittyRenderer{enabled: true, images: make(map[string]*kittyImage)}

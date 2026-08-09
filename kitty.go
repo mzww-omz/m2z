@@ -99,14 +99,16 @@ type kittyRenderer struct {
 
 	pendingDeletes []kittyPlacement
 
-	uploadMu         sync.Mutex
-	writeMu          sync.Mutex
-	uploadOnce       sync.Once
-	uploadQueue      chan kittyUploadJob
-	uploadDone       chan struct{}
-	uploadQueueBytes int
-	uploadGeneration uint64
-	uploadClosed     bool
+	uploadMu               sync.Mutex
+	writeMu                sync.Mutex
+	uploadOnce             sync.Once
+	uploadQueue            chan kittyUploadJob
+	uploadDone             chan struct{}
+	uploadQueueBytes       int
+	uploadGeneration       uint64
+	uploadClosed           bool
+	uploadAdmissionBlocked bool
+	uploadBarrier          uint64
 }
 
 type synchronizedOutput struct {
@@ -239,6 +241,8 @@ func (k *kittyRenderer) reset() {
 	}
 	k.uploadMu.Lock()
 	k.uploadGeneration++
+	k.uploadAdmissionBlocked = true
+	k.uploadBarrier++
 	k.uploadMu.Unlock()
 	for _, image := range k.images {
 		k.pendingDeletes = append(k.pendingDeletes, kittyPlacement{id: image.id, placementID: image.placementID})
@@ -313,6 +317,10 @@ func (k *kittyRenderer) enqueueUpload(job kittyUploadJob) (tea.Cmd, bool) {
 	}
 
 	k.uploadMu.Lock()
+	if k.uploadAdmissionBlocked {
+		k.uploadMu.Unlock()
+		return nil, false
+	}
 	if k.uploadQueue == nil {
 		k.uploadQueue = make(chan kittyUploadJob, kittyUploadQueueCapacity)
 		k.uploadDone = make(chan struct{})
@@ -325,7 +333,7 @@ func (k *kittyRenderer) enqueueUpload(job kittyUploadJob) (tea.Cmd, bool) {
 	job.done = done
 	k.uploadMu.Lock()
 	defer k.uploadMu.Unlock()
-	if k.uploadClosed || k.uploadQueueBytes+len(job.data) > kittyUploadQueueBytes {
+	if k.uploadClosed || k.uploadAdmissionBlocked || k.uploadQueueBytes+len(job.data) > kittyUploadQueueBytes {
 		return nil, false
 	}
 	job.generation = k.uploadGeneration
@@ -451,6 +459,18 @@ func (k *kittyRenderer) clearCmd() tea.Cmd {
 	if k == nil || !k.enabled {
 		return nil
 	}
+	if k.output == nil {
+		k.uploadMu.Lock()
+		k.uploadAdmissionBlocked = false
+		k.uploadMu.Unlock()
+		return nil
+	}
+	k.uploadMu.Lock()
+	k.uploadAdmissionBlocked = true
+	k.uploadBarrier++
+	barrier := k.uploadBarrier
+	k.uploadMu.Unlock()
+
 	sequence := "\x1b_Ga=d,d=A,q=2;\x1b\\"
 	// d=A does not remove virtual placements; delete each image/placement pair explicitly.
 	placements := append([]kittyPlacement(nil), k.pendingDeletes...)
@@ -461,7 +481,20 @@ func (k *kittyRenderer) clearCmd() tea.Cmd {
 		sequence += fmt.Sprintf("\x1b_Ga=d,d=i,i=%d,p=%d,q=2;\x1b\\", placement.id, placement.placementID)
 	}
 	k.pendingDeletes = nil
-	return k.writeCmd(sequence)
+	return func() tea.Msg {
+		k.writeMu.Lock()
+		defer k.writeMu.Unlock()
+		err := writeKittySequence(k.output, sequence)
+		k.uploadMu.Lock()
+		if k.uploadBarrier == barrier {
+			k.uploadAdmissionBlocked = false
+		}
+		k.uploadMu.Unlock()
+		if err != nil {
+			return kittyWriteResult{err: err}
+		}
+		return nil
+	}
 }
 
 func (k *kittyRenderer) writeCmd(sequence string) tea.Cmd {
