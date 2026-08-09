@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -525,19 +526,12 @@ func TestAvatarUploadBypassesBufferedView(t *testing.T) {
 
 	updated, cmd := m.Update(avatarResult{url: avatarURL, data: []byte("png")})
 	if cmd == nil {
-		t.Fatal("avatar upload command is missing")
+		t.Fatal("asset redraw command is missing")
 	}
 	if strings.Contains(updated.(model).View(), "\x1b_G") {
 		t.Fatal("avatar upload leaked into the buffered view")
 	}
-	msg := cmd()
-	batch, ok := msg.(tea.BatchMsg)
-	if !ok {
-		t.Fatalf("avatar upload was not batched with redraw: %T", msg)
-	}
-	for _, child := range batch {
-		child()
-	}
+	m.kitty.close()
 	if !strings.Contains(output.String(), "a=T,U=1,f=100,i=42") {
 		t.Fatalf("avatar was not written directly: %q", output.String())
 	}
@@ -652,6 +646,69 @@ func TestImageColumnsFitPlaceholderDiacritics(t *testing.T) {
 	}
 }
 
+type blockingKittyWriter struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (w *blockingKittyWriter) Write(data []byte) (int, error) {
+	w.once.Do(func() { close(w.started) })
+	<-w.release
+	return len(data), nil
+}
+
+func TestKittyUploadQueueIsBounded(t *testing.T) {
+	writer := &blockingKittyWriter{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	k := &kittyRenderer{
+		enabled: true,
+		output:  writer,
+		images:  make(map[string]*kittyImage),
+	}
+	if !k.enqueueUpload(kittyUploadJob{data: []byte("first"), id: 1, columns: 1, rows: 1}) {
+		t.Fatal("first upload was rejected")
+	}
+	<-writer.started
+
+	accepted := 0
+	for i := 0; i < kittyUploadQueueCapacity+1; i++ {
+		if k.enqueueUpload(kittyUploadJob{data: []byte("queued"), id: uint32(i + 2), columns: 1, rows: 1}) {
+			accepted++
+		}
+	}
+	if accepted != kittyUploadQueueCapacity {
+		t.Fatalf("accepted %d queued uploads, want %d", accepted, kittyUploadQueueCapacity)
+	}
+
+	close(writer.release)
+	k.close()
+}
+
+func TestStaleAvatarResultAfterResetIsIgnored(t *testing.T) {
+	const avatarURL = "https://example/avatar"
+	k := &kittyRenderer{enabled: true, images: make(map[string]*kittyImage)}
+	k.prepareAsset(avatarURL, kittyColumns, kittyRows)
+	oldGeneration := k.images[avatarURL].generation
+	k.reset()
+	k.prepareAsset(avatarURL, kittyColumns, kittyRows)
+	newGeneration := k.images[avatarURL].generation
+	if oldGeneration == newGeneration {
+		t.Fatal("reset did not advance the asset generation")
+	}
+
+	k.finish(avatarResult{url: avatarURL, generation: oldGeneration, data: []byte("old")})
+	if k.images[avatarURL].ready {
+		t.Fatal("stale avatar result was applied after reset")
+	}
+	k.finish(avatarResult{url: avatarURL, generation: newGeneration, data: []byte("new")})
+	if !k.images[avatarURL].ready {
+		t.Fatal("current avatar result was rejected")
+	}
+}
+
 func TestDownloadedImageUsesVirtualPlacement(t *testing.T) {
 	const imageURL = "https://example/image"
 	var output bytes.Buffer
@@ -662,11 +719,8 @@ func TestDownloadedImageUsesVirtualPlacement(t *testing.T) {
 			imageURL: {id: 7, placementID: 8, columns: imageColumns, rows: imageRows, imageAsset: true, loading: true},
 		},
 	}
-	cmd := k.finish(avatarResult{url: imageURL, data: []byte("png"), width: 1600, height: 900})
-	if cmd == nil {
-		t.Fatal("image upload command is missing")
-	}
-	cmd()
+	k.finish(avatarResult{url: imageURL, data: []byte("png"), width: 1600, height: 900})
+	k.close()
 	if !strings.Contains(output.String(), "a=t,t=d") || !strings.Contains(output.String(), "a=p,U=1") {
 		t.Fatalf("image was not uploaded as a virtual placement: %q", output.String())
 	}

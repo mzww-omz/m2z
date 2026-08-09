@@ -24,14 +24,17 @@ import (
 )
 
 const (
-	maxAvatarBytes     = 8 << 20
-	maxAvatarDimension = 2048
-	avatarSize         = 128
-	imageColumns       = 8
-	imageRows          = 8
-	kittyColumns       = 4
-	kittyRows          = 2
-	kittyChunkSize     = 4096
+	maxAvatarBytes           = 8 << 20
+	maxAvatarDimension       = 2048
+	avatarSize               = 128
+	imageColumns             = 8
+	imageRows                = 8
+	kittyColumns             = 4
+	kittyRows                = 2
+	kittyChunkSize           = 4096
+	kittyUploadQueueCapacity = 8
+	kittyUploadQueueBytes    = 1 << 20
+	kittyUploadCloseTimeout  = 100 * time.Millisecond
 )
 
 var kittyDiacritics = []rune{
@@ -40,11 +43,12 @@ var kittyDiacritics = []rune{
 }
 
 type avatarResult struct {
-	url    string
-	data   []byte
-	width  int
-	height int
-	err    error
+	url        string
+	data       []byte
+	width      int
+	height     int
+	err        error
+	generation uint64
 }
 
 type kittyImage struct {
@@ -56,6 +60,17 @@ type kittyImage struct {
 	ready       bool
 	autoSize    bool
 	imageAsset  bool
+	generation  uint64
+}
+
+type kittyUploadJob struct {
+	data             []byte
+	id               uint32
+	columns          int
+	rows             int
+	virtualPlacement bool
+	placementID      uint32
+	generation       uint64
 }
 
 type kittyRenderer struct {
@@ -63,6 +78,15 @@ type kittyRenderer struct {
 	nextID  uint32
 	images  map[string]*kittyImage
 	output  io.Writer
+
+	uploadMu         sync.Mutex
+	writeMu          sync.Mutex
+	uploadOnce       sync.Once
+	uploadQueue      chan kittyUploadJob
+	uploadDone       chan struct{}
+	uploadQueueBytes int
+	uploadGeneration uint64
+	uploadClosed     bool
 }
 
 type synchronizedOutput struct {
@@ -148,6 +172,9 @@ func (k *kittyRenderer) prepareAssetMode(rawURL string, columns, rows int, autoS
 	if _, ok := k.images[rawURL]; ok {
 		return nil
 	}
+	k.uploadMu.Lock()
+	generation := k.uploadGeneration
+	k.uploadMu.Unlock()
 	k.images[rawURL] = &kittyImage{
 		id:          k.nextID,
 		placementID: k.nextID,
@@ -156,9 +183,10 @@ func (k *kittyRenderer) prepareAssetMode(rawURL string, columns, rows int, autoS
 		loading:     true,
 		autoSize:    autoSize,
 		imageAsset:  imageAsset,
+		generation:  generation,
 	}
 	k.nextID++
-	return avatarCmd(rawURL)
+	return avatarCmd(rawURL, generation)
 }
 
 func (m *model) loadAvatars(notes []Note) tea.Cmd {
@@ -180,6 +208,9 @@ func (k *kittyRenderer) reset() {
 	if k == nil || !k.enabled {
 		return
 	}
+	k.uploadMu.Lock()
+	k.uploadGeneration++
+	k.uploadMu.Unlock()
 	k.images = make(map[string]*kittyImage)
 	k.nextID = 1
 }
@@ -189,10 +220,9 @@ func (k *kittyRenderer) finish(msg avatarResult) tea.Cmd {
 		return nil
 	}
 	img, ok := k.images[msg.url]
-	if !ok {
+	if !ok || img.generation != msg.generation {
 		return nil
 	}
-	img.loading = false
 	if msg.err != nil {
 		delete(k.images, msg.url)
 		return nil
@@ -203,8 +233,109 @@ func (k *kittyRenderer) finish(msg avatarResult) tea.Cmd {
 	if img.imageAsset && msg.width > 0 && msg.height > 0 {
 		img.columns, img.rows = imageDimensions(msg.width, msg.height)
 	}
+	if !k.enqueueUpload(kittyUploadJob{
+		data:             msg.data,
+		id:               img.id,
+		columns:          img.columns,
+		rows:             img.rows,
+		virtualPlacement: img.autoSize || img.imageAsset,
+		placementID:      img.placementID,
+	}) {
+		delete(k.images, msg.url)
+		return nil
+	}
+	img.loading = false
 	img.ready = true
-	return k.writeCmd(kittyUploadMode(msg.data, img.id, img.columns, img.rows, img.autoSize || img.imageAsset, img.placementID))
+	return nil
+}
+
+func (k *kittyRenderer) enqueueUpload(job kittyUploadJob) bool {
+	if k == nil {
+		return false
+	}
+	// Tests and non-terminal callers can still exercise the state transition
+	// without an output writer.
+	if k.output == nil {
+		return true
+	}
+	if !k.enabled {
+		return false
+	}
+	if len(job.data) > kittyUploadQueueBytes {
+		return false
+	}
+
+	k.uploadMu.Lock()
+	if k.uploadQueue == nil {
+		k.uploadQueue = make(chan kittyUploadJob, kittyUploadQueueCapacity)
+		k.uploadDone = make(chan struct{})
+	}
+	queue := k.uploadQueue
+	k.uploadMu.Unlock()
+	k.uploadOnce.Do(func() { go k.runUploadQueue(queue) })
+
+	k.uploadMu.Lock()
+	defer k.uploadMu.Unlock()
+	if k.uploadClosed || k.uploadQueueBytes+len(job.data) > kittyUploadQueueBytes {
+		return false
+	}
+	job.generation = k.uploadGeneration
+	select {
+	case queue <- job:
+		k.uploadQueueBytes += len(job.data)
+		return true
+	default:
+		return false
+	}
+}
+
+func (k *kittyRenderer) runUploadQueue(queue <-chan kittyUploadJob) {
+	defer close(k.uploadDone)
+	for job := range queue {
+		k.writeMu.Lock()
+		k.uploadMu.Lock()
+		stale := job.generation != k.uploadGeneration
+		k.uploadMu.Unlock()
+		if !stale && k.output != nil {
+			sequence := kittyUploadMode(job.data, job.id, job.columns, job.rows, job.virtualPlacement, job.placementID)
+			_, _ = io.WriteString(k.output, sequence)
+		}
+		k.writeMu.Unlock()
+
+		k.uploadMu.Lock()
+		k.uploadQueueBytes -= len(job.data)
+		k.uploadMu.Unlock()
+	}
+}
+
+func (k *kittyRenderer) close() {
+	if k == nil {
+		return
+	}
+	k.uploadMu.Lock()
+	if k.uploadQueue == nil || k.uploadClosed {
+		done := k.uploadDone
+		k.uploadMu.Unlock()
+		k.waitForUploads(done)
+		return
+	}
+	k.uploadClosed = true
+	close(k.uploadQueue)
+	done := k.uploadDone
+	k.uploadMu.Unlock()
+	k.waitForUploads(done)
+}
+
+func (k *kittyRenderer) waitForUploads(done <-chan struct{}) {
+	if done == nil {
+		return
+	}
+	timer := time.NewTimer(kittyUploadCloseTimeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
+	}
 }
 
 func imageDimensions(width, height int) (int, int) {
@@ -266,15 +397,17 @@ func (k *kittyRenderer) writeCmd(sequence string) tea.Cmd {
 		return nil
 	}
 	return func() tea.Msg {
+		k.writeMu.Lock()
+		defer k.writeMu.Unlock()
 		_, _ = io.WriteString(k.output, sequence)
 		return nil
 	}
 }
 
-func avatarCmd(rawURL string) tea.Cmd {
+func avatarCmd(rawURL string, generation uint64) tea.Cmd {
 	return func() tea.Msg {
 		data, width, height, err := downloadAvatar(rawURL)
-		return avatarResult{url: rawURL, data: data, width: width, height: height, err: err}
+		return avatarResult{url: rawURL, data: data, width: width, height: height, err: err, generation: generation}
 	}
 }
 

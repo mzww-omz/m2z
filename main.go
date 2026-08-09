@@ -41,6 +41,7 @@ func main() {
 
 	output := &synchronizedOutput{File: os.Stdout}
 	m := newModel(cfg)
+	defer m.kitty.close()
 	m.kitty.output = output
 	if _, err := tea.NewProgram(m, tea.WithOutput(output), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
