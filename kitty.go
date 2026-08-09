@@ -57,6 +57,10 @@ type kittyUploadResult struct {
 	err        error
 }
 
+type kittyWriteResult struct {
+	err error
+}
+
 type kittyImage struct {
 	id          uint32
 	placementID uint32
@@ -345,11 +349,7 @@ func (k *kittyRenderer) runUploadQueue(queue <-chan kittyUploadJob) {
 		var err error
 		if !stale && !closed && k.output != nil {
 			sequence := kittyUploadMode(job.data, job.id, job.columns, job.rows, job.virtualPlacement, job.placementID)
-			written, writeErr := io.WriteString(k.output, sequence)
-			err = writeErr
-			if err == nil && written != len(sequence) {
-				err = io.ErrShortWrite
-			}
+			err = writeKittySequence(k.output, sequence)
 		} else if closed {
 			err = errors.New("Kitty画像送信を停止しました")
 		}
@@ -471,9 +471,19 @@ func (k *kittyRenderer) writeCmd(sequence string) tea.Cmd {
 	return func() tea.Msg {
 		k.writeMu.Lock()
 		defer k.writeMu.Unlock()
-		_, _ = io.WriteString(k.output, sequence)
+		if err := writeKittySequence(k.output, sequence); err != nil {
+			return kittyWriteResult{err: err}
+		}
 		return nil
 	}
+}
+
+func writeKittySequence(output io.Writer, sequence string) error {
+	written, err := io.WriteString(output, sequence)
+	if err == nil && written != len(sequence) {
+		return io.ErrShortWrite
+	}
+	return err
 }
 
 func avatarCmd(rawURL string, generation uint64) tea.Cmd {

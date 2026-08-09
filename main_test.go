@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -162,6 +164,79 @@ func TestTimelineRefreshPreservesSelectedNote(t *testing.T) {
 	if got.selected != 1 || got.notes[got.selected].ID != "selected" {
 		t.Fatalf("selected note was not preserved: selected=%d notes=%+v", got.selected, got.notes)
 	}
+}
+
+func TestTimelineRefreshClearsVirtualPlacementsBeforeNewAssets(t *testing.T) {
+	const oldURL = "https://example/old.png"
+	const newURL = "https://example/new.png"
+	var output bytes.Buffer
+	m := newModel(&Config{Host: "https://example", Token: "token"})
+	m.screen = mainScreen
+	m.stream = &streamClient{kind: 0}
+	m.kitty = &kittyRenderer{
+		enabled: true,
+		output:  &output,
+		images: map[string]*kittyImage{
+			oldURL: {id: 7, placementID: 8, ready: true, imageAsset: true},
+		},
+	}
+
+	updated, cmd := m.Update(timelineResult{notes: []Note{{User: User{AvatarURL: newURL}}}})
+	got := updated.(model)
+	if cmd == nil {
+		t.Fatal("timeline refresh did not return an asset command")
+	}
+	if _, ok := got.kitty.images[newURL]; !ok {
+		t.Fatal("new timeline asset was not prepared")
+	}
+	commands := sequenceCommands(t, cmd)
+	if len(commands) != 2 {
+		t.Fatalf("timeline asset sequence has %d commands, want clear and assets", len(commands))
+	}
+	if result := commands[0](); result != nil {
+		if writeResult, ok := result.(kittyWriteResult); !ok || writeResult.err != nil {
+			t.Fatalf("clear command failed: %#v", result)
+		}
+	}
+	clearIndex := strings.Index(output.String(), "a=d,d=i,i=7,p=8")
+	if clearIndex < 0 || strings.Contains(output.String(), "a=T,U=1") {
+		t.Fatalf("clear command did not run before upload: %q", output.String())
+	}
+
+	uploadCmd := got.kitty.finish(avatarResult{
+		url:        newURL,
+		data:       []byte("png"),
+		generation: got.kitty.images[newURL].generation,
+	})
+	if uploadCmd == nil {
+		t.Fatal("new avatar upload command is missing")
+	}
+	result, ok := uploadCmd().(kittyUploadResult)
+	if !ok || result.err != nil {
+		t.Fatalf("new avatar upload failed: %#v", result)
+	}
+	got.kitty.close()
+	uploadIndex := strings.Index(output.String(), "a=T,U=1")
+	if uploadIndex < clearIndex {
+		t.Fatalf("new upload preceded placement clear: %q", output.String())
+	}
+}
+
+func sequenceCommands(t *testing.T, cmd tea.Cmd) []tea.Cmd {
+	t.Helper()
+	value := reflect.ValueOf(cmd())
+	if value.Kind() != reflect.Slice {
+		t.Fatalf("command returned %T, want a sequence", value.Interface())
+	}
+	commands := make([]tea.Cmd, value.Len())
+	for i := range commands {
+		var ok bool
+		commands[i], ok = value.Index(i).Interface().(tea.Cmd)
+		if !ok {
+			t.Fatalf("sequence item %d has type %T", i, value.Index(i).Interface())
+		}
+	}
+	return commands
 }
 
 func TestOlderTimelineAppendsNotes(t *testing.T) {
@@ -652,10 +727,24 @@ type blockingKittyWriter struct {
 	once    sync.Once
 }
 
+type shortKittyWriter struct{}
+
+func (shortKittyWriter) Write(data []byte) (int, error) {
+	return len(data) - 1, nil
+}
+
 func (w *blockingKittyWriter) Write(data []byte) (int, error) {
 	w.once.Do(func() { close(w.started) })
 	<-w.release
 	return len(data), nil
+}
+
+func TestKittyWriteCmdReportsShortWrite(t *testing.T) {
+	k := &kittyRenderer{enabled: true, output: shortKittyWriter{}}
+	result, ok := k.writeCmd("kitty")().(kittyWriteResult)
+	if !ok || result.err != io.ErrShortWrite {
+		t.Fatalf("short write was not reported: ok=%v result=%#v", ok, result)
+	}
 }
 
 func TestKittyUploadQueueIsBounded(t *testing.T) {

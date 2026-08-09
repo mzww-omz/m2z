@@ -218,6 +218,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.scheduleAssetRedraw()
+	case kittyWriteResult:
+		if msg.err != nil {
+			m.err, m.status = msg.err, "Kitty画像を消去できませんでした"
+		}
+		return m, nil
 	case timelineResult:
 		if msg.accountKey != "" && msg.accountKey != m.config.accountKey() {
 			return m, nil
@@ -239,10 +244,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.hasMore = len(msg.notes) == requestLimit
 		m.loadingOlder = false
 		m.status = fmt.Sprintf("%d件", len(msg.notes))
-		avatarCmd := m.loadAvatars(m.notes)
-		emojiCmd := m.loadEmojiAssets(m.notes)
+		assetCmd := m.resetImageCache()
 		m.updateViewport()
-		return m, batchCommands(m.ensureStream(), avatarCmd, emojiCmd)
+		return m, batchCommands(m.ensureStream(), assetCmd)
 	case olderTimelineResult:
 		if msg.accountKey != "" && msg.accountKey != m.config.accountKey() {
 			return m, nil
@@ -338,9 +342,7 @@ func (m model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	if key == "ctrl+c" || (key == "q" && (m.screen == mainScreen || m.screen == settingsScreen) && m.focus != composerFocus && !m.reactionMode && !m.confirmRenote) {
-		m.stopStream()
-		m.kitty.close()
-		return m, tea.Quit
+		return m.quit()
 	}
 
 	switch m.screen {
@@ -353,7 +355,7 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.status = ""
 				return m, nil
 			}
-			return m, tea.Quit
+			return m.quit()
 		}
 		if key == "enter" && !m.busy {
 			host := m.setupInput.Value()
@@ -397,6 +399,12 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.updateSettingsKey(msg)
 	}
 	return m, nil
+}
+
+func (m model) quit() (tea.Model, tea.Cmd) {
+	m.stopStream()
+	m.kitty.close()
+	return m, tea.Quit
 }
 
 func (m model) updateMainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
