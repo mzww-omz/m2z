@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -740,16 +741,26 @@ func TestKittyUploadQueueIsBounded(t *testing.T) {
 			accepted++
 		}
 	}
-	if accepted != kittyUploadQueueCapacity {
-		t.Fatalf("accepted %d queued uploads, want %d", accepted, kittyUploadQueueCapacity)
+	if accepted != kittyUploadQueueCapacity+1 {
+		t.Fatalf("accepted %d queued uploads, want %d including one waiting upload", accepted, kittyUploadQueueCapacity+1)
+	}
+	k.uploadMu.Lock()
+	queued := len(k.uploadQueue)
+	k.uploadMu.Unlock()
+	if queued != kittyUploadQueueCapacity {
+		t.Fatalf("upload queue grew beyond capacity: %d", queued)
 	}
 
 	close(writer.release)
 	k.close()
 }
 
-func TestFailedUploadRetriesOnCacheAwareRefresh(t *testing.T) {
-	const imageURL = "https://example/image"
+func TestFullUploadQueueWaitsAndRecoversAllImages(t *testing.T) {
+	imageURLs := []string{
+		"https://example/image-one",
+		"https://example/image-two",
+		"https://example/image-three",
+	}
 	writer := &blockingKittyWriter{
 		started: make(chan struct{}),
 		release: make(chan struct{}),
@@ -769,22 +780,29 @@ func TestFailedUploadRetriesOnCacheAwareRefresh(t *testing.T) {
 		}
 	}
 
-	k.prepareAsset(imageURL, kittyColumns, kittyRows)
-	failedImage := k.images[imageURL]
-	if cmd := k.finish(avatarResult{url: imageURL, generation: failedImage.generation, data: []byte("full")}); cmd != nil || !failedImage.failed {
-		t.Fatalf("full queue did not mark image retryable: cmd=%v image=%+v", cmd, failedImage)
-	}
-
-	m := &model{kitty: k}
-	if cmd := m.loadAvatars([]Note{{User: User{AvatarURL: imageURL}}}); cmd == nil {
-		t.Fatal("cache-aware refresh did not retry failed image")
-	}
-	retriedImage := k.images[imageURL]
-	if retriedImage == failedImage || retriedImage.failed || !retriedImage.loading {
-		t.Fatalf("failed image was not replaced for retry: old=%+v new=%+v", failedImage, retriedImage)
+	commands := make([]tea.Cmd, 0, len(imageURLs))
+	images := make([]*kittyImage, 0, len(imageURLs))
+	for _, imageURL := range imageURLs {
+		k.prepareAsset(imageURL, kittyColumns, kittyRows)
+		image := k.images[imageURL]
+		cmd := k.finish(avatarResult{url: imageURL, generation: image.generation, data: []byte("full")})
+		if cmd == nil || image.failed || !image.loading {
+			t.Fatalf("full queue did not retain image for asynchronous admission: cmd=%v image=%+v", cmd, image)
+		}
+		commands = append(commands, cmd)
+		images = append(images, image)
 	}
 
 	close(writer.release)
+	for i, cmd := range commands {
+		result, ok := cmd().(kittyUploadResult)
+		if !ok || result.err != nil || !k.completeUpload(result) {
+			t.Fatalf("waiting upload %d did not recover: ok=%v result=%#v", i, ok, result)
+		}
+		if !images[i].ready || images[i].failed {
+			t.Fatalf("waiting image %d was not made ready: %+v", i, images[i])
+		}
+	}
 	k.close()
 }
 
@@ -825,8 +843,13 @@ func TestKittyUploadAdmissionRemainsBlockedAfterClearFailure(t *testing.T) {
 	}
 
 	image := k.images[imageURL]
-	if cmd := k.finish(avatarResult{url: imageURL, generation: image.generation, data: []byte("new")}); cmd != nil || !image.failed {
-		t.Fatalf("upload was not rejected after clear failure: cmd=%v image=%+v", cmd, image)
+	wait := k.finish(avatarResult{url: imageURL, generation: image.generation, data: []byte("new")})
+	if wait == nil || image.failed || !image.loading {
+		t.Fatalf("upload was not retained after clear failure: cmd=%v image=%+v", wait, image)
+	}
+	uploadResult, ok := wait().(kittyUploadResult)
+	if !ok || uploadResult.err == nil || !k.completeUpload(uploadResult) || !image.failed {
+		t.Fatalf("waiting upload was not released with clear error: ok=%v result=%#v image=%+v", ok, uploadResult, image)
 	}
 
 	if result := k.clearCmd()(); result != nil {
@@ -864,24 +887,81 @@ func TestKittyUploadAdmissionIsBlockedUntilClearCompletes(t *testing.T) {
 	<-writer.started
 
 	image := k.images[imageURL]
-	if cmd := k.finish(avatarResult{url: imageURL, generation: image.generation, data: []byte("new")}); cmd != nil || !image.failed || image.loading {
-		t.Fatalf("upload was not rejected as retryable during clear: cmd=%v image=%+v", cmd, image)
+	wait := k.finish(avatarResult{url: imageURL, generation: image.generation, data: []byte("new")})
+	if wait == nil || image.failed || !image.loading {
+		t.Fatalf("upload was not retained during clear: cmd=%v image=%+v", wait, image)
+	}
+	uploadDone := make(chan tea.Msg, 1)
+	go func() { uploadDone <- wait() }()
+	select {
+	case result := <-uploadDone:
+		t.Fatalf("upload completed before clear: %#v", result)
+	default:
 	}
 
 	close(writer.release)
 	<-clearDone
-
-	k.prepareAsset(imageURL, kittyColumns, kittyRows)
-	image = k.images[imageURL]
-	retry := k.finish(avatarResult{url: imageURL, generation: image.generation, data: []byte("retry")})
-	if retry == nil {
-		t.Fatal("failed image was not retryable after clear")
-	}
-	result, ok := retry().(kittyUploadResult)
+	result, ok := (<-uploadDone).(kittyUploadResult)
 	if !ok || result.err != nil || !k.completeUpload(result) {
-		t.Fatalf("retry upload failed: ok=%v result=%#v", ok, result)
+		t.Fatalf("waiting upload was not reinserted after clear: ok=%v result=%#v", ok, result)
+	}
+	if !image.ready {
+		t.Fatal("reinserted upload did not make image ready")
 	}
 	k.close()
+}
+
+func TestKittyWaitingUploadReleasedByResetAndClose(t *testing.T) {
+	for _, mode := range []string{"reset", "close"} {
+		t.Run(mode, func(t *testing.T) {
+			writer := &blockingKittyWriter{started: make(chan struct{}), release: make(chan struct{})}
+			k := &kittyRenderer{enabled: true, output: writer, images: make(map[string]*kittyImage)}
+			if _, ok := k.enqueueUpload(kittyUploadJob{data: []byte("first"), id: 1}); !ok {
+				t.Fatal("first upload was rejected")
+			}
+			<-writer.started
+			for i := 0; i < kittyUploadQueueCapacity; i++ {
+				if _, ok := k.enqueueUpload(kittyUploadJob{data: []byte("queued"), id: uint32(i + 2)}); !ok {
+					t.Fatal("queued upload was rejected")
+				}
+			}
+			const imageURL = "https://example/waiting"
+			k.prepareAsset(imageURL, kittyColumns, kittyRows)
+			image := k.images[imageURL]
+			wait := k.finish(avatarResult{url: imageURL, generation: image.generation, data: []byte("waiting")})
+			if wait == nil {
+				t.Fatal("waiting upload command is missing")
+			}
+			resultDone := make(chan tea.Msg, 1)
+			go func() { resultDone <- wait() }()
+			if mode == "reset" {
+				k.reset()
+			} else {
+				closeDone := make(chan struct{})
+				go func() {
+					k.close()
+					close(closeDone)
+				}()
+				select {
+				case result := <-resultDone:
+					if upload, ok := result.(kittyUploadResult); !ok || upload.err == nil {
+						t.Fatalf("close did not release waiting upload: %#v", result)
+					}
+				case <-time.After(time.Second):
+					t.Fatal("waiting upload was not released by close")
+				}
+				close(writer.release)
+				<-closeDone
+				return
+			}
+			result := <-resultDone
+			if upload, ok := result.(kittyUploadResult); !ok || upload.err == nil {
+				t.Fatalf("reset did not release waiting upload: %#v", result)
+			}
+			close(writer.release)
+			k.close()
+		})
+	}
 }
 
 func TestStaleAvatarResultAfterResetIsIgnored(t *testing.T) {

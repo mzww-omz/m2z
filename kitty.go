@@ -108,6 +108,8 @@ type kittyRenderer struct {
 	uploadGeneration       uint64
 	uploadClosed           bool
 	uploadAdmissionBlocked bool
+	uploadClearErr         error
+	uploadWake             chan struct{}
 	uploadBarrier          uint64
 }
 
@@ -242,7 +244,9 @@ func (k *kittyRenderer) reset() {
 	k.uploadMu.Lock()
 	k.uploadGeneration++
 	k.uploadAdmissionBlocked = true
+	k.uploadClearErr = nil
 	k.uploadBarrier++
+	k.signalUploadChangeLocked()
 	k.uploadMu.Unlock()
 	for _, image := range k.images {
 		k.pendingDeletes = append(k.pendingDeletes, kittyPlacement{id: image.id, placementID: image.placementID})
@@ -316,34 +320,76 @@ func (k *kittyRenderer) enqueueUpload(job kittyUploadJob) (tea.Cmd, bool) {
 		return nil, false
 	}
 
+	done := make(chan kittyUploadResult, 1)
+	job.done = done
 	k.uploadMu.Lock()
-	if k.uploadAdmissionBlocked {
+	if k.uploadClosed {
 		k.uploadMu.Unlock()
 		return nil, false
 	}
 	if k.uploadQueue == nil {
 		k.uploadQueue = make(chan kittyUploadJob, kittyUploadQueueCapacity)
 		k.uploadDone = make(chan struct{})
+		k.uploadWake = make(chan struct{})
 	}
 	queue := k.uploadQueue
+	job.generation = k.uploadGeneration
+	admitted := false
+	if !k.uploadAdmissionBlocked && k.uploadQueueBytes+len(job.data) <= kittyUploadQueueBytes {
+		select {
+		case queue <- job:
+			k.uploadQueueBytes += len(job.data)
+			admitted = true
+		default:
+		}
+	}
 	k.uploadMu.Unlock()
 	k.uploadOnce.Do(func() { go k.runUploadQueue(queue) })
-
-	done := make(chan kittyUploadResult, 1)
-	job.done = done
-	k.uploadMu.Lock()
-	defer k.uploadMu.Unlock()
-	if k.uploadClosed || k.uploadAdmissionBlocked || k.uploadQueueBytes+len(job.data) > kittyUploadQueueBytes {
-		return nil, false
-	}
-	job.generation = k.uploadGeneration
-	select {
-	case queue <- job:
-		k.uploadQueueBytes += len(job.data)
+	if admitted {
 		return func() tea.Msg { return <-done }, true
-	default:
-		return nil, false
 	}
+	return func() tea.Msg {
+		return k.waitForUpload(job, done)
+	}, true
+}
+
+func (k *kittyRenderer) waitForUpload(job kittyUploadJob, done <-chan kittyUploadResult) tea.Msg {
+	for {
+		k.uploadMu.Lock()
+		if job.generation != k.uploadGeneration {
+			k.uploadMu.Unlock()
+			return kittyUploadResult{url: job.url, generation: job.generation, err: errors.New("Kitty画像の世代が変わりました")}
+		}
+		if k.uploadClosed {
+			k.uploadMu.Unlock()
+			return kittyUploadResult{url: job.url, generation: job.generation, err: errors.New("Kitty画像送信を停止しました")}
+		}
+		if k.uploadAdmissionBlocked && k.uploadClearErr != nil {
+			err := k.uploadClearErr
+			k.uploadMu.Unlock()
+			return kittyUploadResult{url: job.url, generation: job.generation, err: err}
+		}
+		if !k.uploadAdmissionBlocked && k.uploadQueueBytes+len(job.data) <= kittyUploadQueueBytes {
+			select {
+			case k.uploadQueue <- job:
+				k.uploadQueueBytes += len(job.data)
+				k.uploadMu.Unlock()
+				return <-done
+			default:
+			}
+		}
+		wake := k.uploadWake
+		k.uploadMu.Unlock()
+		<-wake
+	}
+}
+
+func (k *kittyRenderer) signalUploadChangeLocked() {
+	if k.uploadWake == nil {
+		return
+	}
+	close(k.uploadWake)
+	k.uploadWake = make(chan struct{})
 }
 
 func (k *kittyRenderer) runUploadQueue(queue <-chan kittyUploadJob) {
@@ -358,8 +404,12 @@ func (k *kittyRenderer) runUploadQueue(queue <-chan kittyUploadJob) {
 		if !stale && !closed && k.output != nil {
 			sequence := kittyUploadMode(job.data, job.id, job.columns, job.rows, job.virtualPlacement, job.placementID)
 			err = writeKittySequence(k.output, sequence)
+		} else if stale {
+			err = errors.New("Kitty画像の世代が変わりました")
 		} else if closed {
 			err = errors.New("Kitty画像送信を停止しました")
+		} else {
+			err = errors.New("Kitty画像出力が無効です")
 		}
 		k.writeMu.Unlock()
 
@@ -368,6 +418,7 @@ func (k *kittyRenderer) runUploadQueue(queue <-chan kittyUploadJob) {
 		}
 		k.uploadMu.Lock()
 		k.uploadQueueBytes -= len(job.data)
+		k.signalUploadChangeLocked()
 		k.uploadMu.Unlock()
 	}
 }
@@ -377,14 +428,13 @@ func (k *kittyRenderer) close() {
 		return
 	}
 	k.uploadMu.Lock()
-	if k.uploadQueue == nil || k.uploadClosed {
-		done := k.uploadDone
-		k.uploadMu.Unlock()
-		k.waitForUploads(done)
-		return
+	if !k.uploadClosed {
+		k.uploadClosed = true
+		k.signalUploadChangeLocked()
+		if k.uploadQueue != nil {
+			close(k.uploadQueue)
+		}
 	}
-	k.uploadClosed = true
-	close(k.uploadQueue)
 	done := k.uploadDone
 	k.uploadMu.Unlock()
 	k.waitForUploads(done)
@@ -461,11 +511,13 @@ func (k *kittyRenderer) clearCmd() tea.Cmd {
 	}
 	k.uploadMu.Lock()
 	k.uploadAdmissionBlocked = true
+	k.uploadClearErr = nil
 	k.uploadBarrier++
 	barrier := k.uploadBarrier
 	if k.output == nil {
 		k.uploadAdmissionBlocked = false
 		k.pendingDeletes = nil
+		k.signalUploadChangeLocked()
 		k.uploadMu.Unlock()
 		return nil
 	}
@@ -485,9 +537,15 @@ func (k *kittyRenderer) clearCmd() tea.Cmd {
 		defer k.writeMu.Unlock()
 		err := writeKittySequence(k.output, sequence)
 		k.uploadMu.Lock()
-		if err == nil && k.uploadBarrier == barrier {
-			k.uploadAdmissionBlocked = false
-			k.pendingDeletes = nil
+		if k.uploadBarrier == barrier {
+			if err == nil {
+				k.uploadAdmissionBlocked = false
+				k.uploadClearErr = nil
+				k.pendingDeletes = nil
+			} else {
+				k.uploadClearErr = err
+			}
+			k.signalUploadChangeLocked()
 		}
 		k.uploadMu.Unlock()
 		if err != nil {
