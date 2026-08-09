@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -166,7 +165,7 @@ func TestTimelineRefreshPreservesSelectedNote(t *testing.T) {
 	}
 }
 
-func TestTimelineRefreshClearsVirtualPlacementsBeforeNewAssets(t *testing.T) {
+func TestTimelineRefreshReusesCachedAssets(t *testing.T) {
 	const oldURL = "https://example/old.png"
 	const newURL = "https://example/new.png"
 	var output bytes.Buffer
@@ -181,62 +180,23 @@ func TestTimelineRefreshClearsVirtualPlacementsBeforeNewAssets(t *testing.T) {
 		},
 	}
 
-	updated, cmd := m.Update(timelineResult{notes: []Note{{User: User{AvatarURL: newURL}}}})
+	updated, cmd := m.Update(timelineResult{notes: []Note{
+		{User: User{AvatarURL: oldURL}},
+		{User: User{AvatarURL: newURL}},
+	}})
 	got := updated.(model)
 	if cmd == nil {
 		t.Fatal("timeline refresh did not return an asset command")
 	}
-	if _, ok := got.kitty.images[newURL]; !ok {
-		t.Fatal("new timeline asset was not prepared")
+	if image := got.kitty.images[oldURL]; image == nil || image.id != 7 || !image.ready {
+		t.Fatalf("cached timeline asset was not reused: %+v", image)
 	}
-	commands := sequenceCommands(t, cmd)
-	if len(commands) != 2 {
-		t.Fatalf("timeline asset sequence has %d commands, want clear and assets", len(commands))
+	if image := got.kitty.images[newURL]; image == nil || !image.loading {
+		t.Fatalf("new timeline asset was not prepared: %+v", image)
 	}
-	if result := commands[0](); result != nil {
-		if writeResult, ok := result.(kittyWriteResult); !ok || writeResult.err != nil {
-			t.Fatalf("clear command failed: %#v", result)
-		}
+	if output.Len() != 0 {
+		t.Fatalf("normal timeline refresh unexpectedly cleared Kitty images: %q", output.String())
 	}
-	clearIndex := strings.Index(output.String(), "a=d,d=i,i=7,p=8")
-	if clearIndex < 0 || strings.Contains(output.String(), "a=T,U=1") {
-		t.Fatalf("clear command did not run before upload: %q", output.String())
-	}
-
-	uploadCmd := got.kitty.finish(avatarResult{
-		url:        newURL,
-		data:       []byte("png"),
-		generation: got.kitty.images[newURL].generation,
-	})
-	if uploadCmd == nil {
-		t.Fatal("new avatar upload command is missing")
-	}
-	result, ok := uploadCmd().(kittyUploadResult)
-	if !ok || result.err != nil {
-		t.Fatalf("new avatar upload failed: %#v", result)
-	}
-	got.kitty.close()
-	uploadIndex := strings.Index(output.String(), "a=T,U=1")
-	if uploadIndex < clearIndex {
-		t.Fatalf("new upload preceded placement clear: %q", output.String())
-	}
-}
-
-func sequenceCommands(t *testing.T, cmd tea.Cmd) []tea.Cmd {
-	t.Helper()
-	value := reflect.ValueOf(cmd())
-	if value.Kind() != reflect.Slice {
-		t.Fatalf("command returned %T, want a sequence", value.Interface())
-	}
-	commands := make([]tea.Cmd, value.Len())
-	for i := range commands {
-		var ok bool
-		commands[i], ok = value.Index(i).Interface().(tea.Cmd)
-		if !ok {
-			t.Fatalf("sequence item %d has type %T", i, value.Index(i).Interface())
-		}
-	}
-	return commands
 }
 
 func TestOlderTimelineAppendsNotes(t *testing.T) {
@@ -786,6 +746,65 @@ func TestKittyUploadQueueIsBounded(t *testing.T) {
 
 	close(writer.release)
 	k.close()
+}
+
+func TestFailedUploadRetriesOnCacheAwareRefresh(t *testing.T) {
+	const imageURL = "https://example/image"
+	writer := &blockingKittyWriter{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	k := &kittyRenderer{
+		enabled: true,
+		output:  writer,
+		images:  make(map[string]*kittyImage),
+	}
+	if _, ok := k.enqueueUpload(kittyUploadJob{data: []byte("first"), id: 1, columns: 1, rows: 1}); !ok {
+		t.Fatal("first upload was rejected")
+	}
+	<-writer.started
+	for i := 0; i < kittyUploadQueueCapacity; i++ {
+		if _, ok := k.enqueueUpload(kittyUploadJob{data: []byte("queued"), id: uint32(i + 2), columns: 1, rows: 1}); !ok {
+			t.Fatalf("queued upload %d was rejected", i)
+		}
+	}
+
+	k.prepareAsset(imageURL, kittyColumns, kittyRows)
+	failedImage := k.images[imageURL]
+	if cmd := k.finish(avatarResult{url: imageURL, generation: failedImage.generation, data: []byte("full")}); cmd != nil || !failedImage.failed {
+		t.Fatalf("full queue did not mark image retryable: cmd=%v image=%+v", cmd, failedImage)
+	}
+
+	m := &model{kitty: k}
+	if cmd := m.loadAvatars([]Note{{User: User{AvatarURL: imageURL}}}); cmd == nil {
+		t.Fatal("cache-aware refresh did not retry failed image")
+	}
+	retriedImage := k.images[imageURL]
+	if retriedImage == failedImage || retriedImage.failed || !retriedImage.loading {
+		t.Fatalf("failed image was not replaced for retry: old=%+v new=%+v", failedImage, retriedImage)
+	}
+
+	close(writer.release)
+	k.close()
+}
+
+func TestClearCmdWithoutOutputUnblocksAdmission(t *testing.T) {
+	k := &kittyRenderer{
+		enabled: true,
+		images: map[string]*kittyImage{
+			"https://example/image": {id: 1, placementID: 2},
+		},
+	}
+	k.reset()
+	if cmd := k.clearCmd(); cmd != nil {
+		t.Fatal("clear without output returned a command")
+	}
+	k.uploadMu.Lock()
+	blocked := k.uploadAdmissionBlocked
+	k.uploadMu.Unlock()
+	if blocked {
+		t.Fatal("clear without output left uploads blocked")
+	}
 }
 
 func TestKittyUploadAdmissionRemainsBlockedAfterClearFailure(t *testing.T) {

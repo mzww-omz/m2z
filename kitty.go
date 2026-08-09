@@ -459,13 +459,16 @@ func (k *kittyRenderer) clearCmd() tea.Cmd {
 	if k == nil || !k.enabled {
 		return nil
 	}
-	if k.output == nil {
-		return nil
-	}
 	k.uploadMu.Lock()
 	k.uploadAdmissionBlocked = true
 	k.uploadBarrier++
 	barrier := k.uploadBarrier
+	if k.output == nil {
+		k.uploadAdmissionBlocked = false
+		k.pendingDeletes = nil
+		k.uploadMu.Unlock()
+		return nil
+	}
 	k.uploadMu.Unlock()
 
 	sequence := "\x1b_Ga=d,d=A,q=2;\x1b\\"

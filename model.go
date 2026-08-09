@@ -244,9 +244,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.hasMore = len(msg.notes) == requestLimit
 		m.loadingOlder = false
 		m.status = fmt.Sprintf("%d件", len(msg.notes))
-		assetCmd := m.resetImageCache()
+		avatarCmd := m.loadAvatars(m.notes)
+		emojiCmd := m.loadEmojiAssets(m.notes)
 		m.updateViewport()
-		return m, batchCommands(m.ensureStream(), assetCmd)
+		return m, batchCommands(m.ensureStream(), avatarCmd, emojiCmd)
 	case olderTimelineResult:
 		if msg.accountKey != "" && msg.accountKey != m.config.accountKey() {
 			return m, nil
