@@ -729,8 +729,20 @@ type blockingKittyWriter struct {
 
 type shortKittyWriter struct{}
 
+type failOnceKittyWriter struct {
+	failed bool
+}
+
 func (shortKittyWriter) Write(data []byte) (int, error) {
 	return len(data) - 1, nil
+}
+
+func (w *failOnceKittyWriter) Write(data []byte) (int, error) {
+	if !w.failed {
+		w.failed = true
+		return len(data) - 1, nil
+	}
+	return len(data), nil
 }
 
 func (w *blockingKittyWriter) Write(data []byte) (int, error) {
@@ -773,6 +785,43 @@ func TestKittyUploadQueueIsBounded(t *testing.T) {
 	}
 
 	close(writer.release)
+	k.close()
+}
+
+func TestKittyUploadAdmissionRemainsBlockedAfterClearFailure(t *testing.T) {
+	const imageURL = "https://example/image"
+	writer := &failOnceKittyWriter{}
+	k := &kittyRenderer{
+		enabled: true,
+		output:  writer,
+		images: map[string]*kittyImage{
+			"https://example/old": {id: 1, placementID: 2, ready: true},
+		},
+	}
+	k.reset()
+	k.prepareAsset(imageURL, kittyColumns, kittyRows)
+	result, ok := k.clearCmd()().(kittyWriteResult)
+	if !ok || result.err != io.ErrShortWrite {
+		t.Fatalf("clear failure was not reported: ok=%v result=%#v", ok, result)
+	}
+
+	image := k.images[imageURL]
+	if cmd := k.finish(avatarResult{url: imageURL, generation: image.generation, data: []byte("new")}); cmd != nil || !image.failed {
+		t.Fatalf("upload was not rejected after clear failure: cmd=%v image=%+v", cmd, image)
+	}
+
+	if result := k.clearCmd()(); result != nil {
+		t.Fatalf("clear retry failed: %#v", result)
+	}
+	k.prepareAsset(imageURL, kittyColumns, kittyRows)
+	image = k.images[imageURL]
+	retry := k.finish(avatarResult{url: imageURL, generation: image.generation, data: []byte("retry")})
+	if retry == nil {
+		t.Fatal("failed image was not retryable after clear retry")
+	}
+	if upload, ok := retry().(kittyUploadResult); !ok || upload.err != nil || !k.completeUpload(upload) {
+		t.Fatalf("retry upload failed: ok=%v upload=%#v", ok, upload)
+	}
 	k.close()
 }
 

@@ -460,9 +460,6 @@ func (k *kittyRenderer) clearCmd() tea.Cmd {
 		return nil
 	}
 	if k.output == nil {
-		k.uploadMu.Lock()
-		k.uploadAdmissionBlocked = false
-		k.uploadMu.Unlock()
 		return nil
 	}
 	k.uploadMu.Lock()
@@ -480,14 +477,14 @@ func (k *kittyRenderer) clearCmd() tea.Cmd {
 	for _, placement := range placements {
 		sequence += fmt.Sprintf("\x1b_Ga=d,d=i,i=%d,p=%d,q=2;\x1b\\", placement.id, placement.placementID)
 	}
-	k.pendingDeletes = nil
 	return func() tea.Msg {
 		k.writeMu.Lock()
 		defer k.writeMu.Unlock()
 		err := writeKittySequence(k.output, sequence)
 		k.uploadMu.Lock()
-		if k.uploadBarrier == barrier {
+		if err == nil && k.uploadBarrier == barrier {
 			k.uploadAdmissionBlocked = false
+			k.pendingDeletes = nil
 		}
 		k.uploadMu.Unlock()
 		if err != nil {
