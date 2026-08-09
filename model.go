@@ -212,14 +212,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case avatarResult:
 		uploadCmd := m.kitty.finish(msg)
-		if m.assetRedrawPending {
-			return m, uploadCmd
+		return m, batchCommands(uploadCmd, m.scheduleAssetRedraw())
+	case kittyUploadResult:
+		if !m.kitty.completeUpload(msg) {
+			return m, nil
 		}
-		m.assetRedrawPending = true
-		redrawCmd := tea.Tick(assetRedrawDelay, func(time.Time) tea.Msg {
-			return assetRedrawMsg{}
-		})
-		return m, batchCommands(uploadCmd, redrawCmd)
+		return m, m.scheduleAssetRedraw()
 	case timelineResult:
 		if msg.accountKey != "" && msg.accountKey != m.config.accountKey() {
 			return m, nil
@@ -341,6 +339,7 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 	if key == "ctrl+c" || (key == "q" && (m.screen == mainScreen || m.screen == settingsScreen) && m.focus != composerFocus && !m.reactionMode && !m.confirmRenote) {
 		m.stopStream()
+		m.kitty.close()
 		return m, tea.Quit
 	}
 
@@ -712,6 +711,16 @@ func (m *model) resize() {
 	m.composer.SetHeight(composerHeight)
 	m.reactionInput.Width = max(1, m.width-4)
 	m.updateViewport()
+}
+
+func (m *model) scheduleAssetRedraw() tea.Cmd {
+	if m.assetRedrawPending {
+		return nil
+	}
+	m.assetRedrawPending = true
+	return tea.Tick(assetRedrawDelay, func(time.Time) tea.Msg {
+		return assetRedrawMsg{}
+	})
 }
 
 func (m *model) updateViewport() {

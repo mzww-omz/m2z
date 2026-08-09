@@ -668,14 +668,14 @@ func TestKittyUploadQueueIsBounded(t *testing.T) {
 		output:  writer,
 		images:  make(map[string]*kittyImage),
 	}
-	if !k.enqueueUpload(kittyUploadJob{data: []byte("first"), id: 1, columns: 1, rows: 1}) {
+	if _, ok := k.enqueueUpload(kittyUploadJob{data: []byte("first"), id: 1, columns: 1, rows: 1}); !ok {
 		t.Fatal("first upload was rejected")
 	}
 	<-writer.started
 
 	accepted := 0
 	for i := 0; i < kittyUploadQueueCapacity+1; i++ {
-		if k.enqueueUpload(kittyUploadJob{data: []byte("queued"), id: uint32(i + 2), columns: 1, rows: 1}) {
+		if _, ok := k.enqueueUpload(kittyUploadJob{data: []byte("queued"), id: uint32(i + 2), columns: 1, rows: 1}); ok {
 			accepted++
 		}
 	}
@@ -709,6 +709,25 @@ func TestStaleAvatarResultAfterResetIsIgnored(t *testing.T) {
 	}
 }
 
+func TestClearCmdDeletesVirtualPlacements(t *testing.T) {
+	var output bytes.Buffer
+	k := &kittyRenderer{
+		enabled: true,
+		output:  &output,
+		images: map[string]*kittyImage{
+			"https://example/image": {id: 7, placementID: 8, ready: true},
+		},
+	}
+	if cmd := k.clearCmd(); cmd == nil {
+		t.Fatal("clear command is missing")
+	} else {
+		cmd()
+	}
+	if !strings.Contains(output.String(), "a=d,d=A") || !strings.Contains(output.String(), "a=d,d=i,i=7,p=8") {
+		t.Fatalf("virtual placement delete was not emitted: %q", output.String())
+	}
+}
+
 func TestDownloadedImageUsesVirtualPlacement(t *testing.T) {
 	const imageURL = "https://example/image"
 	var output bytes.Buffer
@@ -719,7 +738,14 @@ func TestDownloadedImageUsesVirtualPlacement(t *testing.T) {
 			imageURL: {id: 7, placementID: 8, columns: imageColumns, rows: imageRows, imageAsset: true, loading: true},
 		},
 	}
-	k.finish(avatarResult{url: imageURL, data: []byte("png"), width: 1600, height: 900})
+	cmd := k.finish(avatarResult{url: imageURL, data: []byte("png"), width: 1600, height: 900})
+	if k.images[imageURL].ready {
+		t.Fatal("image became ready before upload completion")
+	}
+	result := cmd().(kittyUploadResult)
+	if !k.completeUpload(result) {
+		t.Fatal("upload completion was not applied")
+	}
 	k.close()
 	if !strings.Contains(output.String(), "a=t,t=d") || !strings.Contains(output.String(), "a=p,U=1") {
 		t.Fatalf("image was not uploaded as a virtual placement: %q", output.String())

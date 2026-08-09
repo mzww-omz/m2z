@@ -51,6 +51,12 @@ type avatarResult struct {
 	generation uint64
 }
 
+type kittyUploadResult struct {
+	url        string
+	generation uint64
+	err        error
+}
+
 type kittyImage struct {
 	id          uint32
 	placementID uint32
@@ -58,12 +64,14 @@ type kittyImage struct {
 	rows        int
 	loading     bool
 	ready       bool
+	failed      bool
 	autoSize    bool
 	imageAsset  bool
 	generation  uint64
 }
 
 type kittyUploadJob struct {
+	url              string
 	data             []byte
 	id               uint32
 	columns          int
@@ -71,6 +79,12 @@ type kittyUploadJob struct {
 	virtualPlacement bool
 	placementID      uint32
 	generation       uint64
+	done             chan kittyUploadResult
+}
+
+type kittyPlacement struct {
+	id          uint32
+	placementID uint32
 }
 
 type kittyRenderer struct {
@@ -78,6 +92,8 @@ type kittyRenderer struct {
 	nextID  uint32
 	images  map[string]*kittyImage
 	output  io.Writer
+
+	pendingDeletes []kittyPlacement
 
 	uploadMu         sync.Mutex
 	writeMu          sync.Mutex
@@ -98,6 +114,12 @@ func (w *synchronizedOutput) Write(data []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.File.Write(data)
+}
+
+func (w *synchronizedOutput) WriteString(data string) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.File.WriteString(data)
 }
 
 func newKittyRenderer() *kittyRenderer {
@@ -169,8 +191,11 @@ func (k *kittyRenderer) prepareAssetMode(rawURL string, columns, rows int, autoS
 	if rawURL == "" {
 		return nil
 	}
-	if _, ok := k.images[rawURL]; ok {
-		return nil
+	if image, ok := k.images[rawURL]; ok {
+		if !image.failed {
+			return nil
+		}
+		delete(k.images, rawURL)
 	}
 	k.uploadMu.Lock()
 	generation := k.uploadGeneration
@@ -211,6 +236,9 @@ func (k *kittyRenderer) reset() {
 	k.uploadMu.Lock()
 	k.uploadGeneration++
 	k.uploadMu.Unlock()
+	for _, image := range k.images {
+		k.pendingDeletes = append(k.pendingDeletes, kittyPlacement{id: image.id, placementID: image.placementID})
+	}
 	k.images = make(map[string]*kittyImage)
 	k.nextID = 1
 }
@@ -224,7 +252,8 @@ func (k *kittyRenderer) finish(msg avatarResult) tea.Cmd {
 		return nil
 	}
 	if msg.err != nil {
-		delete(k.images, msg.url)
+		img.loading = false
+		img.failed = true
 		return nil
 	}
 	if img.autoSize && msg.width > 0 && msg.height > 0 {
@@ -233,36 +262,50 @@ func (k *kittyRenderer) finish(msg avatarResult) tea.Cmd {
 	if img.imageAsset && msg.width > 0 && msg.height > 0 {
 		img.columns, img.rows = imageDimensions(msg.width, msg.height)
 	}
-	if !k.enqueueUpload(kittyUploadJob{
+	if k.output == nil {
+		img.loading = false
+		img.ready = true
+		return nil
+	}
+	uploadCmd, ok := k.enqueueUpload(kittyUploadJob{
+		url:              msg.url,
 		data:             msg.data,
 		id:               img.id,
 		columns:          img.columns,
 		rows:             img.rows,
 		virtualPlacement: img.autoSize || img.imageAsset,
 		placementID:      img.placementID,
-	}) {
-		delete(k.images, msg.url)
+	})
+	if !ok {
+		img.loading = false
+		img.failed = true
 		return nil
 	}
-	img.loading = false
-	img.ready = true
-	return nil
+	return uploadCmd
 }
 
-func (k *kittyRenderer) enqueueUpload(job kittyUploadJob) bool {
+func (k *kittyRenderer) completeUpload(msg kittyUploadResult) bool {
 	if k == nil {
 		return false
 	}
-	// Tests and non-terminal callers can still exercise the state transition
-	// without an output writer.
-	if k.output == nil {
+	img, ok := k.images[msg.url]
+	if !ok || img.generation != msg.generation {
+		return false
+	}
+	img.loading = false
+	if msg.err != nil {
+		img.ready = false
+		img.failed = true
 		return true
 	}
-	if !k.enabled {
-		return false
-	}
-	if len(job.data) > kittyUploadQueueBytes {
-		return false
+	img.failed = false
+	img.ready = true
+	return true
+}
+
+func (k *kittyRenderer) enqueueUpload(job kittyUploadJob) (tea.Cmd, bool) {
+	if k == nil || !k.enabled || k.output == nil || len(job.data) > kittyUploadQueueBytes {
+		return nil, false
 	}
 
 	k.uploadMu.Lock()
@@ -274,18 +317,20 @@ func (k *kittyRenderer) enqueueUpload(job kittyUploadJob) bool {
 	k.uploadMu.Unlock()
 	k.uploadOnce.Do(func() { go k.runUploadQueue(queue) })
 
+	done := make(chan kittyUploadResult, 1)
+	job.done = done
 	k.uploadMu.Lock()
 	defer k.uploadMu.Unlock()
 	if k.uploadClosed || k.uploadQueueBytes+len(job.data) > kittyUploadQueueBytes {
-		return false
+		return nil, false
 	}
 	job.generation = k.uploadGeneration
 	select {
 	case queue <- job:
 		k.uploadQueueBytes += len(job.data)
-		return true
+		return func() tea.Msg { return <-done }, true
 	default:
-		return false
+		return nil, false
 	}
 }
 
@@ -295,13 +340,24 @@ func (k *kittyRenderer) runUploadQueue(queue <-chan kittyUploadJob) {
 		k.writeMu.Lock()
 		k.uploadMu.Lock()
 		stale := job.generation != k.uploadGeneration
+		closed := k.uploadClosed
 		k.uploadMu.Unlock()
-		if !stale && k.output != nil {
+		var err error
+		if !stale && !closed && k.output != nil {
 			sequence := kittyUploadMode(job.data, job.id, job.columns, job.rows, job.virtualPlacement, job.placementID)
-			_, _ = io.WriteString(k.output, sequence)
+			written, writeErr := io.WriteString(k.output, sequence)
+			err = writeErr
+			if err == nil && written != len(sequence) {
+				err = io.ErrShortWrite
+			}
+		} else if closed {
+			err = errors.New("Kitty画像送信を停止しました")
 		}
 		k.writeMu.Unlock()
 
+		if job.done != nil {
+			job.done <- kittyUploadResult{url: job.url, generation: job.generation, err: err}
+		}
 		k.uploadMu.Lock()
 		k.uploadQueueBytes -= len(job.data)
 		k.uploadMu.Unlock()
@@ -372,7 +428,10 @@ func (k *kittyRenderer) placeholderFor(rawURL string, columns, rows int) string 
 		return kittyMissingPlaceholder()
 	}
 	img, ok := k.images[rawURL]
-	if !ok || !img.ready {
+	if !ok || img.failed {
+		return kittyMissingPlaceholder()
+	}
+	if !img.ready {
 		return kittyLoadingPlaceholder(columns, rows)
 	}
 	return kittyPlaceholderWithPlacement(img.id, img.columns, img.rows, img.placementID)
@@ -389,7 +448,20 @@ func kittyMissingPlaceholder() string {
 }
 
 func (k *kittyRenderer) clearCmd() tea.Cmd {
-	return k.writeCmd("\x1b_Ga=d,d=A,q=2;\x1b\\")
+	if k == nil || !k.enabled {
+		return nil
+	}
+	sequence := "\x1b_Ga=d,d=A,q=2;\x1b\\"
+	// d=A does not remove virtual placements; delete each image/placement pair explicitly.
+	placements := append([]kittyPlacement(nil), k.pendingDeletes...)
+	for _, image := range k.images {
+		placements = append(placements, kittyPlacement{id: image.id, placementID: image.placementID})
+	}
+	for _, placement := range placements {
+		sequence += fmt.Sprintf("\x1b_Ga=d,d=i,i=%d,p=%d,q=2;\x1b\\", placement.id, placement.placementID)
+	}
+	k.pendingDeletes = nil
+	return k.writeCmd(sequence)
 }
 
 func (k *kittyRenderer) writeCmd(sequence string) tea.Cmd {
